@@ -6,6 +6,8 @@ from rapidfuzz import fuzz, process
 from dotenv import load_dotenv
 from logger import setup_logging
 import time
+from prefect import flow, task
+from prefect.client.schemas.schedules import CronSchedule
 logger = setup_logging()
 load_dotenv()
 
@@ -149,7 +151,8 @@ def write_csv_to_minio_stream(df, object_name="processed_jobs_sample.csv"):
     except Exception as e:
         logger.error(f"Error streaming to MinIO: {e}")
 
-if __name__ == "__main__":
+@flow(name="fuzzy_match")
+def fuzzy_match():
     tick = time.time()
     logger.info("Processing beginning on Fuzzy Matching NYC Jobs Postings & Payroll Data")
 
@@ -165,19 +168,14 @@ if __name__ == "__main__":
     logger.info(f"Processing completed in {tock - tick} seconds")
 
 if __name__ == "__main__":
-    tick = time.time()
-    logger.info("Processing beginning on Fuzzy Matching NYC Jobs Postings & Payroll Data")
-
-    logger.info("Processing payroll data to create comparison strings")
-    payroll_df = process_payroll_data("data/BRONZE/nyc_payroll_data_raw/ducklake-0198ae84-a79a-7628-bfa8-9481d369a09c.parquet")
-
-    logger.info("Processing job postings data and applying fuzzy matching")
-    processed_jobs_df = process_job_postings_data("data/BRONZE/nyc_job_postings_data_raw/ducklake-0198ae84-a5fd-7549-8a1d-287d56fbd9de.parquet", payroll_df)
-
-    write_csv_to_minio_stream(processed_jobs_df)
-
-    tock = time.time()
-    logger.info(f"Processing completed in {tock - tick} seconds")
+    fuzzy_match.serve(
+        name="Fuzzy Matching",
+        schedule=CronSchedule(
+            cron="0 1 * * 0",
+            timezone="UTC"
+        ), # sundays at 1 am
+        tags=["data_ingestion", "weekly"]
+    )
 
 
 # ratio: Compares the raw strings character by character. It’s strict and doesn’t handle word order or extra words well.
