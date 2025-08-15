@@ -1,5 +1,6 @@
 from minio import Minio
 import os
+import io
 import polars as pl
 from rapidfuzz import fuzz, process
 from dotenv import load_dotenv
@@ -60,40 +61,44 @@ def build_payroll_agency_lookup(payroll_lookup_df):
 
 def match_job_posting_to_payroll(row, payroll_by_agency, payroll_lookup_df):
     agency = row['agency']
-    target_string = f"{agency} {row['business_title']}"
+    target_string = row['business_title']
     candidate_strings = payroll_by_agency.get(agency, [])
     match_str, match_ratio = calculate_fuzzy_match(target_string, candidate_strings)
     logger.info(f"Fuzzy matching {target_string} against {len(candidate_strings)} payroll records.")
-    if match_ratio > 85:
+    if match_ratio >= 85:
         payroll_row = payroll_lookup_df.filter(
             (pl.col("agency_name") == agency) & (pl.col("comparison_string") == match_str)
         )
         if payroll_row.height > 0:
             pr = payroll_row.row(0)
-            actual_regular_gross_paid = pr[payroll_lookup_df.columns.index('regular_gross_paid')]
-            actual_total_ot_paid = pr[payroll_lookup_df.columns.index('total_ot_paid')]
-            actual_total_other_pay = pr[payroll_lookup_df.columns.index('total_other_pay')]
+            actual_regular_gross_paid = float(pr[payroll_lookup_df.columns.index('regular_gross_paid')])
+            actual_total_ot_paid = float(pr[payroll_lookup_df.columns.index('total_ot_paid')])
+            actual_total_other_pay = float(pr[payroll_lookup_df.columns.index('total_other_pay')])
             actual_total_income_paid = (
-                float(actual_regular_gross_paid)
-                + float(actual_total_ot_paid)
-                + float(actual_total_other_pay)
+                actual_regular_gross_paid
+                + actual_total_ot_paid
+                + actual_total_other_pay
             )
-            return {
-                "agency": row['agency'],
-                "business_title": row['business_title'],
-                "posting_salary_range_from": row['salary_range_from'],
-                "posting_salary_range_to": row['salary_range_to'],
-                "posting_date": row['posting_date'],
-                "posting_until": row['post_until'],
-                "posting_duration": row['posting_duration'],
-                "actual_base_salary": pr[payroll_lookup_df.columns.index('base_salary')],
-                "actual_pay_basis": pr[payroll_lookup_df.columns.index('pay_basis')],
-                "actual_regular_gross_paid": actual_regular_gross_paid,
-                "actual_total_ot_paid": actual_total_ot_paid,
-                "actual_total_other_pay": actual_total_other_pay,
-                "actual_total_income_paid": actual_total_income_paid,
-                "match_ratio": match_ratio
-            }
+            # Salary overlap check
+            posting_salary_min = float(row['salary_range_from']) if row['salary_range_from'] is not None else 0
+            posting_salary_max = float(row['salary_range_to']) if row['salary_range_to'] is not None else 0
+            if posting_salary_min <= actual_regular_gross_paid <= posting_salary_max:
+                return {
+                    "agency": row['agency'],
+                    "business_title": row['business_title'],
+                    "posting_salary_range_from": posting_salary_min,
+                    "posting_salary_range_to": posting_salary_max,
+                    "posting_date": row['posting_date'],
+                    "posting_until": row['post_until'],
+                    "posting_duration": row['posting_duration'],
+                    "actual_base_salary": pr[payroll_lookup_df.columns.index('base_salary')],
+                    "actual_pay_basis": pr[payroll_lookup_df.columns.index('pay_basis')],
+                    "actual_regular_gross_paid": actual_regular_gross_paid,
+                    "actual_total_ot_paid": actual_total_ot_paid,
+                    "actual_total_other_pay": actual_total_other_pay,
+                    "actual_total_income_paid": actual_total_income_paid,
+                    "match_ratio": match_ratio
+                }
     return None
 
 def process_job_postings_data(job_postings_file, payroll_lookup_df):
@@ -106,6 +111,11 @@ def process_job_postings_data(job_postings_file, payroll_lookup_df):
         "post_until"
     ]
     processed_jobs_df = load_and_prepare_job_postings(job_postings_file, job_posting_cols)
+
+    # Filter posting date for 2024 or 2025
+    processed_jobs_df = processed_jobs_df.filter(
+        (pl.col("posting_date").dt.year() == 2024) | (pl.col("posting_date").dt.year() == 2025)
+    )
     payroll_by_agency = build_payroll_agency_lookup(payroll_lookup_df)
 
     results = []
@@ -115,20 +125,29 @@ def process_job_postings_data(job_postings_file, payroll_lookup_df):
             results.append(match)
     return pl.DataFrame(results)
 
-def write_csv_to_minio(local_csv_path):
+
+def write_csv_to_minio_stream(df, object_name="processed_jobs_sample.csv"):
     client = Minio(
         endpoint=os.getenv("MINIO_EXTERNAL_URL"),
         access_key=os.getenv("MINIO_ACCESS_KEY"),
         secret_key=os.getenv("MINIO_SECRET_KEY"),
         secure=False
     )
-    minio_object_name = "processed_jobs_sample.csv"
     minio_bucket = os.getenv("MINIO_BUCKET_NAME")
     try:
-        client.fput_object(minio_bucket, minio_object_name, local_csv_path)
-        logger.info(f"Uploaded {local_csv_path} to minio://{minio_bucket}/{minio_object_name}")
+        buffer = io.BytesIO()
+        df.write_csv(buffer)
+        buffer.seek(0)
+        client.put_object(
+            minio_bucket,
+            object_name,
+            buffer,
+            length=buffer.getbuffer().nbytes,
+            content_type="application/csv"
+        )
+        logger.info(f"Streamed CSV to minio://{minio_bucket}/{object_name}")
     except Exception as e:
-        logger.error(f"Error uploading to MinIO: {e}")
+        logger.error(f"Error streaming to MinIO: {e}")
 
 if __name__ == "__main__":
     tick = time.time()
@@ -140,9 +159,22 @@ if __name__ == "__main__":
     logger.info("Processing job postings data and applying fuzzy matching")
     processed_jobs_df = process_job_postings_data("data/BRONZE/nyc_job_postings_data_raw/ducklake-0198ae84-a5fd-7549-8a1d-287d56fbd9de.parquet", payroll_df)
 
-    local_csv_path = "processed_jobs.csv"
-    processed_jobs_df.write_csv(local_csv_path)
-    write_csv_to_minio(local_csv_path)
+    write_csv_to_minio_stream(processed_jobs_df)
+
+    tock = time.time()
+    logger.info(f"Processing completed in {tock - tick} seconds")
+
+if __name__ == "__main__":
+    tick = time.time()
+    logger.info("Processing beginning on Fuzzy Matching NYC Jobs Postings & Payroll Data")
+
+    logger.info("Processing payroll data to create comparison strings")
+    payroll_df = process_payroll_data("data/BRONZE/nyc_payroll_data_raw/ducklake-0198ae84-a79a-7628-bfa8-9481d369a09c.parquet")
+
+    logger.info("Processing job postings data and applying fuzzy matching")
+    processed_jobs_df = process_job_postings_data("data/BRONZE/nyc_job_postings_data_raw/ducklake-0198ae84-a5fd-7549-8a1d-287d56fbd9de.parquet", payroll_df)
+
+    write_csv_to_minio_stream(processed_jobs_df)
 
     tock = time.time()
     logger.info(f"Processing completed in {tock - tick} seconds")
@@ -152,4 +184,4 @@ if __name__ == "__main__":
 # token_sort_ratio: Sorts the words in both strings before comparing. Good for cases where word order differs but all words are present.
 # token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").
 
-# Last run time: ~11 minutes
+# Last run time: ~8.7 minutes
