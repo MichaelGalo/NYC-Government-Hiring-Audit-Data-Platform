@@ -1,6 +1,6 @@
 Next steps:
-- full data ingestion in data_ingestion.py (works for api currently)
-- once the data ingestion will feed to minio, then test in main.py
+- write fuzzy matcher where I have 2 dataframes (payroll and job postings)
+- write silver tier sql scripts
 
 Payroll Columns:
 - agency_name
