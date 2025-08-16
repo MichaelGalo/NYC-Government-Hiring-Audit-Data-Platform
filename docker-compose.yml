@@ -24,6 +24,32 @@ services:
     ports:
       - "4200:4200"
 
+  prefect-init:
+    image: prefecthq/prefect:3-latest
+    container_name: prefect_init
+    command: >
+      /bin/bash -c "
+        sleep 5 &&
+        prefect work-pool create data_ingestion --type process || true
+      "
+    environment:
+      PREFECT_API_URL: "http://prefect-server:4200/api"
+    depends_on:
+      - prefect-server
+
+  prefect-worker:
+    image: prefecthq/prefect:3-latest
+    container_name: prefect_worker
+    command: >
+      /bin/bash -c "
+        sleep 10 &&
+        prefect worker start --pool data_ingestion
+      "
+    environment:
+      PREFECT_API_URL: "http://prefect-server:4200/api"
+    depends_on:
+      - prefect-init
+
 volumes:
   minio_data:
 
