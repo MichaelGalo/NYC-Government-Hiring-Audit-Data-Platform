@@ -18,14 +18,16 @@ services:
       - default
 
   prefect-server:
-    image: prefecthq/prefect:latest
+    image: prefecthq/prefect:3-latest
+    container_name: prefect_server
     command: prefect server start
     ports:
       - "4200:4200"
     environment:
       PREFECT_API_URL: "http://prefect-server:4200/api"
   prefect-worker:
-    image: prefecthq/prefect:latest
+    image: prefecthq/prefect:3-latest
+    container_name: prefect_worker
     command: prefect worker start --pool data_ingestion
     environment:
       PREFECT_API_URL: "http://prefect-server:4200/api"
