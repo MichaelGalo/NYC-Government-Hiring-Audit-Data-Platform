@@ -8,6 +8,7 @@ import time
 from logger import setup_logging
 from prefect import flow, task
 from prefect.client.schemas.schedules import CronSchedule
+from fuzzy_matching import fuzzy_match
 logger = setup_logging()
 load_dotenv()
 
@@ -18,6 +19,7 @@ def fetch_api_data(base_url):
     all_data = []
 
     batch = [None]  # considered falsy for break at `[]`
+    total_records = 0
     while batch:
         paged_url = f"{base_url}?$limit={limit}&$offset={offset}"
         response = requests.get(paged_url)
@@ -26,6 +28,8 @@ def fetch_api_data(base_url):
         if not batch:
             break
         all_data.extend(batch)
+        total_records += len(batch)
+        logger.info(f"Fetched batch starting at record {offset}, total records fetched: {total_records}")
         offset += limit
 
     api_data_dataframe = pl.DataFrame(all_data)
@@ -53,7 +57,7 @@ def write_data_to_minio(dataframe, bucket_name, object_name):
     )
 
 
-@flow(name="Data Ingestion Flow")
+@flow(name="Data_Ingestion_Flow")
 def run_data_ingestion():
     tick = time.time()
     payroll_url = os.getenv("NYC_PAYROLL_DATA_API")
@@ -63,16 +67,22 @@ def run_data_ingestion():
     nyc_job_postings_filename = "nyc_job_postings_data.csv"
 
     nyc_payroll_data = fetch_api_data(payroll_url)
+    logger.info("Writing NYC Payroll Data to MinIO Storage")
     write_data_to_minio(nyc_payroll_data, minio_bucket, nyc_payroll_filename)
 
     nyc_job_postings_data = fetch_api_data(job_postings_url)
+    logger.info("Writing NYC Job Postings Data to MinIO Storage")
     write_data_to_minio(nyc_job_postings_data, minio_bucket, nyc_job_postings_filename)
     tock = time.time() - tick
+
+    logger.info("Now beginning: Fuzzy matching job postings to payroll data")
+    fuzzy_match()
+
     logger.info(f"Data ingestion completed in {tock:.2f} seconds.")
 
 if __name__ == "__main__":
     run_data_ingestion.serve(
-        name="Data Ingestion",
+        name="Data_Ingestion",
         schedule=CronSchedule(
             cron="0 0 * * 0",
             timezone="UTC"

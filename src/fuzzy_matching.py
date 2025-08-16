@@ -151,7 +151,8 @@ def write_csv_to_minio_stream(df, object_name="nyc_jobs_audited.csv"):
     except Exception as e:
         logger.error(f"Error streaming to MinIO: {e}")
 
-@flow(name="fuzzy_match")
+# @flow(name="fuzzy_match")
+@task(name="fuzzy_match")
 def fuzzy_match():
     tick = time.time()
     logger.info("Processing beginning on Fuzzy Matching NYC Jobs Postings & Payroll Data")
@@ -165,17 +166,17 @@ def fuzzy_match():
     write_csv_to_minio_stream(processed_jobs_df)
 
     tock = time.time()
-    logger.info(f"Processing completed in {tock - tick} seconds")
+    logger.info(f"Fuzzy Matching completed in {tock - tick} seconds")
 
-if __name__ == "__main__":
-    fuzzy_match.serve(
-        name="Fuzzy Matching",
-        schedule=CronSchedule(
-            cron="0 1 * * 0",
-            timezone="UTC"
-        ), # sundays at 1 am
-        tags=["data_ingestion", "weekly"]
-    )
+# if __name__ == "__main__":
+#     fuzzy_match.serve(
+#         name="Fuzzy_Matching",
+#         schedule=CronSchedule(
+#             cron="0 1 * * 0",
+#             timezone="UTC"
+#         ), # sundays at 1 am
+#         tags=["data_ingestion", "weekly"]
+#     )
 
 
 # ratio: Compares the raw strings character by character. It’s strict and doesn’t handle word order or extra words well.
@@ -183,10 +184,3 @@ if __name__ == "__main__":
 # token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").
 
 # Last run time: ~8.7 minutes
-
-# FIXME: requires either a work pool or different deployment commands for a quick-run in the ui
-
-# create work pool: prefect work-pool create my-pool --type process
-# start a worker: prefect worker start --pool my-pool
-# create deployment for flow: prefect deployment create src/fuzzy_matching.py:fuzzy_match --name "Fuzzy Matching" --pool my-pool
-# again: prefect deployment create src/data_ingestion.py:run_data_ingestion --name "Data Ingestion" --pool my-pool
