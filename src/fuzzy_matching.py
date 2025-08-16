@@ -185,3 +185,8 @@ if __name__ == "__main__":
 # Last run time: ~8.7 minutes
 
 # FIXME: requires either a work pool or different deployment commands for a quick-run in the ui
+
+# create work pool: prefect work-pool create my-pool --type process
+# start a worker: prefect worker start --pool my-pool
+# create deployment for flow: prefect deployment create src/fuzzy_matching.py:fuzzy_match --name "Fuzzy Matching" --pool my-pool
+# again: prefect deployment create src/data_ingestion.py:run_data_ingestion --name "Data Ingestion" --pool my-pool
