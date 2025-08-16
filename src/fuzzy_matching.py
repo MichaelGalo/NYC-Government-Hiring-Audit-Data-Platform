@@ -128,7 +128,7 @@ def process_job_postings_data(job_postings_file, payroll_lookup_df):
     return pl.DataFrame(results)
 
 
-def write_csv_to_minio_stream(df, object_name="processed_jobs_sample.csv"):
+def write_csv_to_minio_stream(df, object_name="nyc_jobs_audited.csv"):
     client = Minio(
         endpoint=os.getenv("MINIO_EXTERNAL_URL"),
         access_key=os.getenv("MINIO_ACCESS_KEY"),
@@ -183,3 +183,5 @@ if __name__ == "__main__":
 # token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").
 
 # Last run time: ~8.7 minutes
+
+# FIXME: requires either a work pool or different deployment commands for a quick-run in the ui
