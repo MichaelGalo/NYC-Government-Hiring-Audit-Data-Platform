@@ -27,3 +27,6 @@ Lightcast Columns useful:
 Deliverable Datasets:
 - job posting duration dataset
 - job salary match ratios
+
+Fuzzy Match Process:
+- Token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").

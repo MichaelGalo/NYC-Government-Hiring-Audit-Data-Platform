@@ -168,19 +168,4 @@ def fuzzy_match():
     tock = time.time()
     logger.info(f"Fuzzy Matching completed in {tock - tick} seconds")
 
-# if __name__ == "__main__":
-#     fuzzy_match.serve(
-#         name="Fuzzy_Matching",
-#         schedule=CronSchedule(
-#             cron="0 1 * * 0",
-#             timezone="UTC"
-#         ), # sundays at 1 am
-#         tags=["data_ingestion", "weekly"]
-#     )
-
-
-# ratio: Compares the raw strings character by character. It’s strict and doesn’t handle word order or extra words well.
-# token_sort_ratio: Sorts the words in both strings before comparing. Good for cases where word order differs but all words are present.
-# token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").
-
 # Last run time: ~8.7 minutes
