@@ -4,7 +4,7 @@ from prefect import task
 from dotenv import load_dotenv
 from logger import setup_logging
 import time
-from utils import normalize_string, get_latest_file, write_csv_to_minio_stream
+from utils import normalize_string, get_latest_file, write_csv_to_minio_stream, write_dataframe_to_bronze_table
 
 logger = setup_logging()
 load_dotenv()
@@ -154,7 +154,11 @@ def fuzzy_match_salary():
     logger.info(f"Using job postings data file: {job_postings_file}")
     processed_jobs_df = process_job_postings_data(job_postings_file, processed_payroll_df)
 
-    write_csv_to_minio_stream(processed_jobs_df, object_name="nyc_jobs_audited.csv")
+    logger.info("Writing processed DataFrame to BRONZE table")
+    write_dataframe_to_bronze_table(processed_jobs_df, "nyc_jobs_audited_fuzzy")
+
+    logger.info("Streaming processed DataFrame to MinIO as CSV")
+    write_csv_to_minio_stream(processed_jobs_df, object_name="nyc_jobs_audited_fuzzy.csv")
 
     tock = time.time()
     logger.info(f"Fuzzy Matching completed in {tock - tick:.2f} seconds")

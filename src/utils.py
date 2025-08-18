@@ -5,6 +5,12 @@ import os
 import io
 import glob
 from minio import Minio
+import duckdb
+import time
+import sys
+current_path = os.path.dirname(os.path.abspath(__file__))
+parent_path = os.path.abspath(os.path.join(current_path, ".."))
+sys.path.append(parent_path)
 
 load_dotenv()
 logger = setup_logging() 
@@ -45,3 +51,29 @@ def write_csv_to_minio_stream(df, object_name):
         logger.info(f"Streamed CSV to minio://{minio_bucket}/{object_name}")
     except Exception as e:
         logger.error(f"Error streaming to MinIO: {e}")
+
+
+# Create a utils function that will write the DataFrame to a BRONZE table in duckdb
+def write_dataframe_to_bronze_table(df, table_name):
+    duckdb.install_extension("ducklake")
+    duckdb.install_extension("httpfs")
+    duckdb.load_extension("ducklake")
+    duckdb.load_extension("httpfs")
+    db_path = os.path.join(parent_path, "nyc_jobs_audit.db")
+    con = duckdb.connect(db_path)
+    data_path = os.path.join(parent_path, "data")
+    catalog_path = os.path.join(parent_path, "catalog.ducklake")
+    con.execute(f"ATTACH 'ducklake:{catalog_path}' AS my_ducklake (DATA_PATH '{data_path}')")
+    con.execute("USE my_ducklake")
+
+    data_to_write = df
+    try:
+        con.execute(f"CREATE TABLE IF NOT EXISTS BRONZE.{table_name}_raw AS SELECT * FROM df")
+        logger.info(f"Successfully created BRONZE.{table_name}_raw")
+
+    except Exception as e:
+        logger.error(f"Error writing DataFrame to DuckDB: {e}")
+        raise
+    finally:
+        con.close()
+        logger.info(f"Closed DuckDB connection")
