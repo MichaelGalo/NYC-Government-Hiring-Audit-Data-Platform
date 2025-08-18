@@ -20,4 +20,4 @@ SELECT
     l."Total Postings (Jan 2024 - Jun 2025)" AS total_postings,
     l."Median Posting Duration" AS median_posting_duration
 FROM GOLD.nyc_salary_match_ratio AS m
-LEFT JOIN BRONZE.lightcast_top_posted_occuipations_SOC_raw AS l ON m.job_title = l."Occupation (SOC)"
+LEFT JOIN BRONZE.lightcast_top_posted_occupations_SOC_raw AS l ON m.job_title = l."Occupation (SOC)"

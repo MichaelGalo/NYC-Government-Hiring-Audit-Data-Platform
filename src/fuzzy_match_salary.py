@@ -1,29 +1,29 @@
-from minio import Minio
-import os
-import io
-import glob
 import polars as pl
 from rapidfuzz import fuzz, process
+from prefect import task
 from dotenv import load_dotenv
 from logger import setup_logging
 import time
-from prefect import task
+from utils import normalize_string, get_latest_file, write_csv_to_minio_stream
 
 logger = setup_logging()
 load_dotenv()
 
-def get_latest_file(directory, extension="*.parquet"):
-    files = glob.glob(os.path.join(directory, extension))
-    if not files:
-        raise FileNotFoundError(f"No files with extension {extension} found in directory: {directory}")
-    latest_file = max(files, key=os.path.getctime)  # Get the most recently created/modified file
-    return latest_file
 
+def calculate_fuzzy_match(target_string, candidate_lookup):
+    target_norm = normalize_string(target_string)
+    candidates = list(candidate_lookup.keys())
 
-def calculate_fuzzy_match(target_string, candidate_list_of_strings):
-    best_match = process.extractOne(target_string, candidate_list_of_strings, scorer=fuzz.token_set_ratio)
+    best_match = process.extractOne(
+        target_norm,
+        candidates,
+        scorer=fuzz.token_set_ratio
+    )
+
     if best_match:
-        return best_match[0], best_match[1]
+        norm_match, score = best_match[0], best_match[1]
+        original_match = candidate_lookup[norm_match]
+        return original_match, score
     return None, 0
 
 
@@ -66,12 +66,11 @@ def load_and_prepare_job_postings(job_postings_file, job_posting_cols):
     return jobs_lazy.collect()
 
 
-def match_job_posting_to_payroll(row, candidate_strings, payroll_lookup_df):
+def match_job_posting_to_payroll(row, candidate_lookup, payroll_lookup_df):
     target_string = row['business_title']
-    match_str, match_ratio = calculate_fuzzy_match(target_string, candidate_strings)
+    match_str, match_ratio = calculate_fuzzy_match(target_string, candidate_lookup)
     
     if match_ratio >= 85:
-
         payroll_row = payroll_lookup_df.filter(pl.col("comparison_string") == match_str)
         if payroll_row.height > 0:
             pr = payroll_row.row(0)
@@ -82,7 +81,8 @@ def match_job_posting_to_payroll(row, candidate_strings, payroll_lookup_df):
             # Salary overlap check
             if posting_salary_min <= actual_base_salary <= posting_salary_max:
                 return {
-                    "job_title": row['business_title'],
+                    "job_title": row['business_title'],         
+                    "matched_payroll_title": match_str,     
                     "match_ratio": match_ratio,
                     "posting_salary_range_from": posting_salary_min,
                     "posting_salary_range_to": posting_salary_max,
@@ -112,16 +112,23 @@ def process_job_postings_data(job_postings_file, payroll_lookup_df):
     processed_jobs_df = processed_jobs_df.filter(
         (pl.col("posting_date").dt.year() == 2024) | (pl.col("posting_date").dt.year() == 2025)
     )
-    
-    candidate_strings = payroll_lookup_df["comparison_string"].unique().to_list()
+
+    # Creates a lookup dictionary for normalized strings to original values to return original matches
+    candidate_lookup = {}
+
+    unique_candidates = payroll_lookup_df["comparison_string"].unique().to_list()
+    for candidate_string in unique_candidates:
+        normalized_candidate = normalize_string(candidate_string)
+        candidate_lookup[normalized_candidate] = candidate_string
+
     results = []
     title_match_count = 0
 
     for i, row in enumerate(processed_jobs_df.iter_rows(named=True), start=1):
-        match = match_job_posting_to_payroll(row, candidate_strings, payroll_lookup_df)
+        match = match_job_posting_to_payroll(row, candidate_lookup, payroll_lookup_df)
         if match:
             results.append(match)
-            title_match_count += 1  # Increment the counter for each match
+            title_match_count += 1
 
         # Log every 1000 rows
         if i % 1000 == 0:
@@ -133,35 +140,8 @@ def process_job_postings_data(job_postings_file, payroll_lookup_df):
     return pl.DataFrame(results)
 
 
-def write_csv_to_minio_stream(df, object_name="nyc_jobs_audited.csv"):
-    client = Minio(
-        endpoint=os.getenv("MINIO_EXTERNAL_URL"),
-        access_key=os.getenv("MINIO_ACCESS_KEY"),
-        secret_key=os.getenv("MINIO_SECRET_KEY"),
-        secure=False
-    )
-    minio_bucket = os.getenv("MINIO_BUCKET_NAME")
-    try:
-        buffer = io.BytesIO()
-        df.write_csv(buffer)
-        buffer.seek(0)
-        client.put_object(
-            minio_bucket,
-            object_name,
-            buffer,
-            length=buffer.getbuffer().nbytes,
-            content_type="application/csv"
-        )
-        logger.info(f"Streamed CSV to minio://{minio_bucket}/{object_name}")
-    except Exception as e:
-        logger.error(f"Error streaming to MinIO: {e}")
-
-
-# ----------------------------
-# Prefect Task
-# ----------------------------
 @task(name="fuzzy_match")
-def fuzzy_match():
+def fuzzy_match_salary():
     tick = time.time()
     logger.info("Processing beginning on Fuzzy Matching NYC Jobs Postings & Payroll Data")
 
@@ -174,9 +154,7 @@ def fuzzy_match():
     logger.info(f"Using job postings data file: {job_postings_file}")
     processed_jobs_df = process_job_postings_data(job_postings_file, processed_payroll_df)
 
-    write_csv_to_minio_stream(processed_jobs_df)
+    write_csv_to_minio_stream(processed_jobs_df, object_name="nyc_jobs_audited.csv")
 
     tock = time.time()
     logger.info(f"Fuzzy Matching completed in {tock - tick:.2f} seconds")
-
-#  last run = 16.15 seconds

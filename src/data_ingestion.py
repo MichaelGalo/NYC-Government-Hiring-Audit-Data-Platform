@@ -8,7 +8,6 @@ import time
 from logger import setup_logging
 from prefect import flow, task
 from prefect.client.schemas.schedules import CronSchedule
-from fuzzy_matching import fuzzy_match
 logger = setup_logging()
 load_dotenv()
 
@@ -74,9 +73,6 @@ def run_data_ingestion():
     logger.info("Writing NYC Job Postings Data to MinIO Storage")
     write_data_to_minio(nyc_job_postings_data, minio_bucket, nyc_job_postings_filename)
     tock = time.time() - tick
-
-    logger.info("Now beginning: Fuzzy matching job postings to payroll data")
-    fuzzy_match()
 
     logger.info(f"Data ingestion completed in {tock:.2f} seconds.")
 
