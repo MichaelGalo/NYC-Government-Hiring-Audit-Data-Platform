@@ -89,17 +89,8 @@ except Exception as e:
 bronze_end_time = time.time()
 logger.info(f"Bronze layer ingestion completed in {bronze_end_time - bronze_start_time:.2f} seconds")
 
-# Run Cleaning 
-# gold_start_time = time.time()
-# logger.info("Starting Gold layer processing")
-# with open("sql/cleaned.sql", "r") as f:
-#     query = f.read()
-# con.execute(query)
-# gold_end_time = time.time()
-# logger.info(f"Gold layer processing completed in {gold_end_time - gold_start_time:.2f} seconds")
-
 con.close()
 logger.info("Database connection closed")
 
 total_end_time = time.time()
-logger.info(f"NYC Jobs Audit data pipeline completed successfully in {total_end_time - total_start_time:.2f} seconds")
+logger.info(f"Database Init & Bronze Ingestion Layer completed in {total_end_time - total_start_time:.2f} seconds")
