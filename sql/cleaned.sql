@@ -3,4 +3,4 @@
 
 
 
--- TODO: Create a unified dataset full of joins based off of the deliverable datasets requested
+-- TODO: Create 2 unified datasets based off of jobs posting duration & salary match ratios

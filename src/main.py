@@ -91,15 +91,6 @@ except Exception as e:
 bronze_end_time = time.time()
 logger.info(f"Bronze layer ingestion completed in {bronze_end_time - bronze_start_time:.2f} seconds")
 
-# Run Staging 
-# silver_start_time = time.time()
-# logger.info("Starting Silver layer processing")
-# with open("sql/staged.sql", "r") as f:
-#     query = f.read()
-# con.execute(query)
-# silver_end_time = time.time()
-# logger.info(f"Silver layer processing completed in {silver_end_time - silver_start_time:.2f} seconds")
-
 # Run Cleaning 
 # gold_start_time = time.time()
 # logger.info("Starting Gold layer processing")

@@ -1,6 +1,7 @@
 Next steps:
-- write fuzzy matcher where I have 2 dataframes (payroll and job postings)
-- write silver tier sql scripts
+- apparently write another fuzzy match between the audited jobs and the lightcast jobs with a 75 ratio (business titles only) use all tables and literally give them 4 different dataset results
+- mention in data architecture that with duck lake that medallion goes out the window. I have raw & cleaned, no staged.
+- mention Token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").
 
 Payroll Columns:
 - agency_name
@@ -19,14 +20,23 @@ Job Posting Columns:
 - posting_date
 - post_until (if NULL assume a default of 30 days and mention it)
 
-Lightcast Columns useful:
-- Lightcast Job Title
-- Lightcast Total Postings
-- Lightcast Median Posting Duration
+Lightcast Executive Summary:
+- total_postings
+- unique_postings (maybe)
+- median_posting_duration
+
+Lightcast Top Jobs Columns:
+- 
 
 Deliverable Datasets:
-- job posting duration dataset
-- job salary match ratios
+- job posting duration dataset (between audited jobs & lightcast data?)
+- job salary match ratios (between job postings and actual payroll data)
 
 Fuzzy Match Process:
-- Token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").
+
+
+-- maybe offer some other reports (that they didn't ask for, break lightcast for 4 tables)
+
+
+
+GRAB ALL occupation data (all tables, deliniated by the table name headers (top, SOC, etc.))

@@ -9,3 +9,4 @@ USE my_ducklake;
 SELECT * FROM BRONZE.nyc_job_postings_data_raw
 SELECT * FROM BRONZE.nyc_payroll_data_raw
 SELECT * FROM BRONZE.lightcast_executive_summary_raw
+SELECT * FROM BRONZE.nyc_jobs_audited_raw
