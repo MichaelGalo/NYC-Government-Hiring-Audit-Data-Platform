@@ -70,18 +70,17 @@ try:
 
         logger.info(f"Processing file: {file_path} -> table: BRONZE.{table_name}_raw")
 
-        BRONZE_query = """
-        CREATE TABLE IF NOT EXISTS BRONZE.{table}_raw AS
+        BRONZE_query = f"""
+        CREATE TABLE IF NOT EXISTS BRONZE.{table_name}_raw AS
         SELECT 
             *,
-            ? AS _source_file,
+            '{file_name}' AS _source_file,
             CURRENT_TIMESTAMP AS _ingestion_timestamp,
             ROW_NUMBER() OVER () AS _record_id
-        FROM read_csv(?, all_varchar=true);
-        """.format(table=table_name)
+        FROM read_csv_auto('{file_path}', header=true, ignore_errors=true, all_varchar=true);
+        """
         
-        # parameterized to avoid SQL injection
-        con.execute(BRONZE_query, [file_name, file_path])
+        con.execute(BRONZE_query)
         logger.info(f"Successfully created BRONZE.{table_name}_raw")
 
 except Exception as e:

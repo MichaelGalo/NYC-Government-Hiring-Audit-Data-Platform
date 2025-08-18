@@ -112,11 +112,10 @@ def process_job_postings_data(job_postings_file, payroll_lookup_df):
     processed_jobs_df = processed_jobs_df.filter(
         (pl.col("posting_date").dt.year() == 2024) | (pl.col("posting_date").dt.year() == 2025)
     )
-
-    # Compute candidate strings once
+    
     candidate_strings = payroll_lookup_df["comparison_string"].unique().to_list()
     results = []
-    title_match_count = 0  # Initialize the counter outside the function
+    title_match_count = 0
 
     for i, row in enumerate(processed_jobs_df.iter_rows(named=True), start=1):
         match = match_job_posting_to_payroll(row, candidate_strings, payroll_lookup_df)

@@ -6,6 +6,10 @@ AS my_ducklake (DATA_PATH '/Users/michaelgalo/Workspace/data-engineering/project
 USE my_ducklake;
 
 -- Validation of Table Creation
+SELECT * FROM BRONZE.lightcast_top_posted_job_titles_raw
+SELECT * FROM BRONZE.lightcast_top_posted_occupations_raw
+SELECT * FROM BRONZE.lightcast_top_posted_occupations_onet_raw
+SELECT * FROM BRONZE.lightcast_top_posted_occupations_soc_raw
 SELECT * FROM BRONZE.nyc_job_postings_data_raw
 SELECT * FROM BRONZE.nyc_payroll_data_raw
 SELECT * FROM BRONZE.lightcast_executive_summary_raw
