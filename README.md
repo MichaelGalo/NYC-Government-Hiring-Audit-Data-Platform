@@ -14,18 +14,15 @@ This project builds a core data pipeline to support an audit of NYC government h
 - Expose and Present Data 
 
 ## Pipeline Architecture
-The pipeline consists of three main tiers:
+The pipeline consists of 2 main tiers:
 
 ### Bronze Layer
 - Raw ingestion of NYC Payroll, Job Postings, and Lighthouse Analytics Data.
 - Data is loaded into DuckDB for fast local processing.
 
-### Silver Layer 
-- Data cleaning, normalization, and basic transformations.
-- Filtering for relevant posting dates (2024/2025).
-- Preparation for fuzzy matching.
-
 ### Gold Layer 
+- Filtering for relevant posting dates (2024/2025).
+- Data cleaning, normalization, and basic transformations.
 - Fuzzy string matching to reconcile job titles.
 - Calculation of match ratios, posting durations, and salary metrics.
 - Final audit datasets for analysis.
@@ -42,5 +39,5 @@ The entire workflow will be orchestrated using Prefect.
 - DuckDB & Ducklake
 - Prefect (orchestration)
 - rapidfuzz
-- FastAPI 
-- Streamlit 
+- FastAPI (in development)
+- Streamlit (in development)

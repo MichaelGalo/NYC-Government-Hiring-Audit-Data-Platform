@@ -14,7 +14,7 @@ sys.path.append(parent_path)
 load_dotenv()
 logger = setup_logging() 
 
-def normalize_string(input_string: str) -> str:
+def normalize_string(input_string):
     # normalizes for string comparison
     if input_string is None:
         return ""
@@ -25,7 +25,7 @@ def get_latest_file(directory, extension="*.parquet"):
     files = glob.glob(os.path.join(directory, extension))
     if not files:
         raise FileNotFoundError(f"No files with extension {extension} found in directory: {directory}")
-    latest_file = max(files, key=os.path.getctime)  # Get the most recently created/modified file
+    latest_file = max(files, key=os.path.getctime)
     return latest_file
 
 def write_csv_to_minio_stream(df, object_name):

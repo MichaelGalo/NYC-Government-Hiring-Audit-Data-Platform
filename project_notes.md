@@ -1,6 +1,6 @@
 Next steps:
 - apparently write another fuzzy match between the audited jobs and the lightcast jobs with a 75 ratio (business titles only) use all tables and literally give them 4 different dataset results
-- in main.py I need my fuzzy matched results to also become parquet files in may ducklake, so that I can query my gold tier off of them
+- I don't truly have a gold tier cleaned data, even after fuzzy. I need to write for distinct and specific column values
 
 Payroll Columns:
 - agency_name
