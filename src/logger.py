@@ -10,8 +10,8 @@ def format_json(record):
         "time": datetime.datetime.fromtimestamp(record.created).isoformat(),
         "logger": record.name,
         "level": record.levelname,
-        "message": record.getMessage(),
         "line": record.lineno,
+        "message": record.getMessage()
     }
     if record.exc_info:
         log_entry["exception"] = logging._defaultFormatter.formatException(

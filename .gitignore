@@ -204,3 +204,6 @@ __marimo__/
 
 .DS_Store
 /data
+catalog.ducklake
+catalog.ducklake.wal
+nyc_jobs_audit.db
