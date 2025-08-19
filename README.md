@@ -8,6 +8,16 @@ This project builds a comprehensive data pipeline to audit NYC government hiring
 - **Job Posting Duration Dataset**: Dataset analyzing job posting durations using Lightcast data.
 - **Additional Reports**: Potential additional datasets based on Lightcast data.
 
+## Learning Objectives
+- Design and implement a concise data pipeline for multi-source audit data.
+- Acquire data from CSVs (public APIs) and XLSX files.
+- Implement fuzzy string matching to reconcile textual data.
+- Calculate derived metrics for the gold layer: job posting duration and salary match ratios.
+- Orchestrate the pipeline using Prefect.
+- Utilize logging and error handling for critical pipeline stages.
+- Document pipeline methodology and key findings.
+- Expose and Present Data
+
 ## Data Architecture
 Utilizing a modern ducklake approach, this pipeline is organized into two main tiers:
 
