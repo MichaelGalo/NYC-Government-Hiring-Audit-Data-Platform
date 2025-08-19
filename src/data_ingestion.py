@@ -5,6 +5,7 @@ from minio import Minio
 import io
 import polars as pl
 import time
+from db_sync import db_sync
 from logger import setup_logging
 from prefect import flow, task
 from prefect.client.schemas.schedules import CronSchedule
@@ -73,6 +74,9 @@ def run_data_ingestion():
     logger.info("Writing NYC Job Postings Data to MinIO Storage")
     write_data_to_minio(nyc_job_postings_data, minio_bucket, nyc_job_postings_filename)
     tock = time.time() - tick
+
+    logger.info("Synchronizing Data to Database")
+    db_sync()
 
     logger.info(f"Data ingestion completed in {tock:.2f} seconds.")
 

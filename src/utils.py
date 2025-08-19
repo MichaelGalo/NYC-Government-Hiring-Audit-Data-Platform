@@ -76,7 +76,7 @@ def write_dataframe_to_bronze_table(df, table_name):
         con.close()
         logger.info(f"Closed DuckDB connection")
 
-def data_sync(con, logger, bucket_name):
+def update_data(con, logger, bucket_name):
     logger.info("Starting Bronze layer ingestion")
     file_list_query = f"SELECT * FROM glob('s3://{bucket_name}/*.csv')"
 
