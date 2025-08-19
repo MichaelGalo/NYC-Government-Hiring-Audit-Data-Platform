@@ -21,7 +21,6 @@ DATASET_CONFIG = {
 
 def fetch_single_dataset(dataset_id, offset, limit):
     try:
-        # Convert dataset_id to integer
         dataset_id = int(dataset_id)
         offset = int(offset)
         limit = int(limit)
@@ -48,15 +47,15 @@ def fetch_single_dataset(dataset_id, offset, limit):
         con.execute("USE my_ducklake")
         logger.info("DuckLake attached and activated successfully")
 
-        query = f"""
-            SELECT * FROM {dataset['table_name']} 
-            OFFSET {offset} 
-            LIMIT {limit}
+        query = """
+            SELECT * FROM {table_name}
+            OFFSET ?
+            LIMIT ?
         """
-        logger.info(f"Executing query: {query}")
-        result = con.execute(query).fetchall()
+        logger.info(f"Executing parameterized query on table: {dataset['table_name']}")
+        result = con.execute(query.format(table_name=dataset['table_name']), [offset, limit]).fetchall()
         columns = [desc[0] for desc in con.description]
-    
+
         data = [dict(zip(columns, row)) for row in result]
 
         logger.info(f"Retrieved {len(data)} records")
