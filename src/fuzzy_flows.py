@@ -11,10 +11,10 @@ def fuzzy_match():
 
 if __name__ == "__main__":
     fuzzy_match.serve(
-        name="Data_Ingestion",
+        name="Fuzzy_Match",
         schedule=CronSchedule(
             cron="0 1 * * 0",
             timezone="UTC"
         ), # sundays at 1 am
-        tags=["data_ingestion", "weekly"]
+        tags=["fuzzy_matching", "weekly"]
     )

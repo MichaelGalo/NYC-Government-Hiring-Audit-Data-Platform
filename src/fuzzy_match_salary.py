@@ -44,7 +44,8 @@ def process_payroll_data(directory):
         pl.col("title_description").cast(pl.Utf8).alias("comparison_string")
     ])
     payroll_data_df = payroll_data_lazy.collect()
-    return payroll_data_df
+    result = payroll_data_df
+    return result
 
 
 def load_and_prepare_job_postings(job_postings_file, job_posting_cols):
@@ -70,7 +71,7 @@ def match_job_posting_to_payroll(row, candidate_lookup, payroll_lookup_df):
     target_string = row['business_title']
     match_str, match_ratio = calculate_fuzzy_match(target_string, candidate_lookup)
     
-    if match_ratio >= 85:
+    if match_ratio >= 85: # log this set (return all items, not just the first that reaches a match) 
         payroll_row = payroll_lookup_df.filter(pl.col("comparison_string") == match_str)
         if payroll_row.height > 0:
             pr = payroll_row.row(0)

@@ -16,5 +16,9 @@ SELECT * FROM BRONZE.lightcast_executive_summary_raw
 SELECT * FROM BRONZE.nyc_jobs_audited_raw
 
 -- Validation of Fuzzy Matching
-SELECT * FROM BRONZE.nyc_jobs_audited_fuzzy
-SELECT * FROM BRONZE.job_durations_fuzzy
+SELECT * FROM BRONZE.nyc_jobs_audited_fuzzy_raw
+SELECT * FROM BRONZE.job_durations_fuzzy_raw
+
+-- Validation of Gold Table Creation
+SELECT * FROM GOLD.nyc_salary_matches
+SELECT * FROM GOLD.nyc_matched_job_posting_duration_SOC
