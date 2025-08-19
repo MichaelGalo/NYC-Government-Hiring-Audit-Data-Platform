@@ -1,7 +1,12 @@
 # NYC Government Hiring Audit Data Platform
 
-## Overview
-This project builds a core data pipeline to support an audit of NYC government hiring practices. The pipeline ingests, cleans, and transforms data from NYC Open Data (Payroll, Job Postings) and a Lighthouse Data Analytics Excel file. The main challenge is integrating these sources, reconciling job titles using fuzzy string matching, and calculating key audit metrics. The final datasets are delivered to PostgreSQL (or DuckDB) for analysis, with a 5-day turnaround.
+## Project Overview
+This project builds a comprehensive data pipeline to audit NYC government hiring practices. The pipeline integrates data from multiple sources, including NYC Open Data (Payroll, Job Postings) and Lighthouse Data Analytics, to reconcile job titles using fuzzy string matching and calculate key audit metrics. The final datasets are delivered to DuckDB and an API for analysis, ensuring a 5-day turnaround for actionable insights.
+
+## Deliverables
+- **Job Salary Match Ratios**: Dataset comparing job postings and payroll data.
+- **Job Posting Duration Dataset**: Dataset analyzing job posting durations using Lightcast data.
+- **Additional Reports**: Potential additional datasets based on Lightcast data.
 
 ## Learning Objectives
 - Design and implement a concise data pipeline for multi-source audit data.
@@ -11,33 +16,32 @@ This project builds a core data pipeline to support an audit of NYC government h
 - Orchestrate the pipeline using Prefect.
 - Utilize logging and error handling for critical pipeline stages.
 - Document pipeline methodology and key findings.
-- Expose and Present Data 
+- Expose and Present Data
 
-## Pipeline Architecture
-The pipeline consists of 2 main tiers:
+## Data Architecture
+Utilizing a modern ducklake approach, this pipeline is organized into two main tiers:
 
 ### Bronze Layer
-- Raw ingestion of NYC Payroll, Job Postings, and Lighthouse Analytics Data.
-- Data is loaded into DuckDB for fast local processing.
+- **Purpose**: Raw data ingestion and storage.
+- **Data Sources**:
+  - NYC Payroll Data
+  - NYC Job Postings Data
+  - Lighthouse Analytics Data
+- **Storage**: Data is loaded into DuckDB for fast local processing.
 
-### Gold Layer 
-- Filtering for relevant posting dates (2024/2025).
-- Data cleaning, normalization, and basic transformations.
-- Fuzzy string matching to reconcile job titles.
-- Calculation of match ratios, posting durations, and salary metrics.
-- Final audit datasets for analysis.
+### Gold Layer
+- **Purpose**: Data cleaning, transformation, and metric calculation.
+- **Key Processes**:
+  - Filtering for relevant posting dates (2024/2025).
+  - Normalization and basic transformations.
+  - Fuzzy string matching to reconcile job titles.
+  - Calculation of match ratios, posting durations, and salary metrics.
+- **Output**: Final audit datasets for analysis.
 
-## Orchestration
-The entire workflow will be orchestrated using Prefect.
-
-## Future Extensions
-- **FastAPI**: Expose cleaned and gold-tier data via a REST API for downstream analysis and reporting.
-- **Streamlit Dashboard**: If time permits, build an interactive dashboard for data exploration and visualization.
-
-## Key Technologies
-- Python 
-- DuckDB & Ducklake
-- Prefect (orchestration)
-- rapidfuzz
-- FastAPI (in development)
-- Streamlit (in development)
+## Technologies Used
+- **Programming Language**: Python
+- **Database**: DuckDB & Ducklake
+- **Orchestration**: Prefect
+- **Fuzzy Matching**: rapidfuzz
+- **API**: FastAPI (for exposing data)
+- **Dashboard**: Streamlit (in development))
