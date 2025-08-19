@@ -1,14 +1,14 @@
+from logger import setup_logging
 import os
-import time
 import sys
+import time
 import duckdb
 from prefect import task
+from utils import update_data
+from dotenv import load_dotenv
 current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(current_path, ".."))
 sys.path.append(parent_path)
-from src.logger import setup_logging
-from utils import update_data
-from dotenv import load_dotenv
 load_dotenv()
 
 logger = setup_logging()

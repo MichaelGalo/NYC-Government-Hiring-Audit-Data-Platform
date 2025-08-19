@@ -64,7 +64,6 @@ def write_dataframe_to_bronze_table(df, table_name):
     con.execute(f"ATTACH 'ducklake:{catalog_path}' AS my_ducklake (DATA_PATH '{data_path}')")
     con.execute("USE my_ducklake")
 
-    data_to_write = df
     try:
         con.execute(f"CREATE TABLE IF NOT EXISTS BRONZE.{table_name}_raw AS SELECT * FROM df")
         logger.info(f"Successfully created BRONZE.{table_name}_raw")
@@ -74,7 +73,7 @@ def write_dataframe_to_bronze_table(df, table_name):
         raise
     finally:
         con.close()
-        logger.info(f"Closed DuckDB connection")
+        logger.info("Closed DuckDB connection")
 
 def update_data(con, logger, bucket_name):
     logger.info("Starting Bronze layer ingestion")
