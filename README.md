@@ -45,3 +45,14 @@ Utilizing a modern ducklake approach, this pipeline is organized into two main t
 - **Fuzzy Matching**: rapidfuzz
 - **API**: FastAPI (for exposing data)
 - **Dashboard**: Streamlit (in development))
+
+## Terminal Commands
+
+```bash
+# API Development Server
+fastapi dev api/main.py
+```
+
+```bash
+# Streamlit Data Vis
+streamlit run streamlit/app.py

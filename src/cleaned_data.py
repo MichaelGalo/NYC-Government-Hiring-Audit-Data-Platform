@@ -40,6 +40,7 @@ def run_gold_layer():
 
     con.close()
     gold_end_time = time.time()
+
     logger.info(f"Gold layer processing completed in {gold_end_time - gold_start_time:.2f} seconds")
 
 if __name__ == "__main__":
