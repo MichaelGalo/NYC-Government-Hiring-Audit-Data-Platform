@@ -12,7 +12,7 @@ from prefect.client.schemas.schedules import CronSchedule
 logger = setup_logging()
 load_dotenv()
 
-# @task(name="Fetch API Data")
+@task(name="Fetch API Data")
 def fetch_api_data(base_url):
     limit = 50000
     offset = 0
@@ -46,7 +46,7 @@ def convert_csv_to_parquet(dataframe):
         logger.error(f"Failed to convert DataFrame to Parquet in-memory: {e}")
         return None
 
-# @task(name="Write Data to MinIO")
+@task(name="Write Data to MinIO")
 def write_data_to_minio(parquet_buffer, bucket_name, object_name):
     minio_client = Minio(
         os.getenv("MINIO_EXTERNAL_URL"),
@@ -66,7 +66,7 @@ def write_data_to_minio(parquet_buffer, bucket_name, object_name):
     )
 
 
-# @flow(name="Data_Ingestion_Flow")
+@flow(name="Data_Ingestion_Flow")
 def run_data_ingestion():
     tick = time.time()
     payroll_url = os.getenv("NYC_PAYROLL_DATA_API")
@@ -91,14 +91,12 @@ def run_data_ingestion():
 
     logger.info(f"Data ingestion completed in {tock:.2f} seconds.")
 
-# if __name__ == "__main__":
-#     run_data_ingestion.serve(
-#         name="Data_Ingestion",
-#         schedule=CronSchedule(
-#             cron="0 0 * * 0",
-#             timezone="UTC"
-#         ), # sundays at midnight
-#         tags=["data_ingestion", "weekly"]
-#     )
-
-run_data_ingestion()
+if __name__ == "__main__":
+    run_data_ingestion.serve(
+        name="Data_Ingestion",
+        schedule=CronSchedule(
+            cron="0 0 * * 0",
+            timezone="UTC"
+        ), # sundays at midnight
+        tags=["data_ingestion", "weekly"]
+    )

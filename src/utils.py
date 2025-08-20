@@ -1,12 +1,13 @@
-import unicodedata
 from logger import setup_logging
 from dotenv import load_dotenv
 import os
 import io
+import string
 import glob
+import re
 from minio import Minio
-import duckdb
 import sys
+import polars as pl
 current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(current_path, ".."))
 sys.path.append(parent_path)
@@ -14,42 +15,96 @@ sys.path.append(parent_path)
 load_dotenv()
 logger = setup_logging() 
 
-def normalize_string(input_string):
-    # normalizes for string comparison
-    if input_string is None:
+
+punctuation_table = str.maketrans("", "", string.punctuation)
+
+def normalize_title(title):
+
+    if not isinstance(title, str):
         return ""
-    normalized = unicodedata.normalize("NFKC", input_string).strip().upper()
-    return normalized
+    title = title.lower()
+    title = title.translate(punctuation_table)
+    title = re.sub(r"\s+", " ", title)
+    return title.strip()
 
-def get_latest_file(directory, extension="*.parquet"):
-    files = glob.glob(os.path.join(directory, extension))
-    if not files:
-        raise FileNotFoundError(f"No files with extension {extension} found in directory: {directory}")
-    latest_file = max(files, key=os.path.getctime)
-    return latest_file
 
-def write_dataframe_to_bronze_table(df, table_name):
-    duckdb.install_extension("ducklake")
-    duckdb.install_extension("httpfs")
-    duckdb.load_extension("ducklake")
-    duckdb.load_extension("httpfs")
-    db_path = os.path.join(parent_path, "nyc_jobs_audit.db")
-    con = duckdb.connect(db_path)
-    data_path = os.path.join(parent_path, "data")
-    catalog_path = os.path.join(parent_path, "catalog.ducklake")
-    con.execute(f"ATTACH 'ducklake:{catalog_path}' AS my_ducklake (DATA_PATH '{data_path}')")
-    con.execute("USE my_ducklake")
+def get_most_recent_file(path, extension="*.parquet"):
+    if os.path.isfile(path):
+        return path
+    matches = (
+        glob.glob(path)
+        or glob.glob(os.path.join(path, extension))
+        or glob.glob(os.path.join(path, "**", extension), recursive=True)
+    )
+    if not matches:
+        raise FileNotFoundError(f"No files found matching {path} (ext={extension})")
+    return max(matches, key=os.path.getctime)
 
+def chunked(iterable, size):
+    total_length = len(iterable)
+    for start_index in range(0, total_length, size):
+        end_index = min(start_index + size, total_length)
+        yield start_index, end_index, iterable[start_index:end_index]
+
+def write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count):
+    for row in output_buffer:
+        for date_col in ["posting_date", "post_until"]:
+            if row[date_col] is not None:
+                row[date_col] = str(row[date_col])
+    batch_filename = output_parquet.replace(".parquet", f"_batch_{batch_count:03}.parquet")
+    pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
+    output_buffer.clear()
+    return batch_count + 1
+
+def merge_and_cleanup_batches(output_parquet, logger):
+    batch_files_pattern = output_parquet.replace(".parquet", "_batch_*.parquet")
+    batch_files = sorted(glob.glob(batch_files_pattern))
+    if batch_files:
+        logger.info(f"Merging {len(batch_files)} batch files into final Parquet...")
+        merged_df = pl.concat([pl.read_parquet(f) for f in batch_files])
+        merged_df.write_parquet(output_parquet)
+        logger.info(f"Final Parquet written to {output_parquet}")
+        for f in batch_files:
+            os.remove(f)
+        logger.info("Temporary batch files deleted.")
+    else:
+        logger.warning("No batch files found to merge.")
+
+def upload_file_to_minio(file_path, bucket_name, object_name):
+    client = Minio(
+        os.getenv("MINIO_EXTERNAL_URL"),
+        access_key=os.getenv("MINIO_ACCESS_KEY"),
+        secret_key=os.getenv("MINIO_SECRET_KEY"),
+        secure=False,
+    )
+    with open(file_path, "rb") as fh:
+        data = fh.read()
+    client.put_object(
+        bucket_name,
+        object_name,
+        io.BytesIO(data),
+        length=len(data),
+        content_type="application/x-parquet",
+    )
+
+def upload_parquet_and_remove_local(parquet_path, logger):
+    bucket = os.getenv("MINIO_BUCKET_NAME")
+    if not bucket:
+        logger.warning("MINIO_BUCKET_NAME not set; skipping upload to MinIO")
+        return False
+    object_name = os.path.basename(parquet_path)
     try:
-        con.execute(f"CREATE TABLE IF NOT EXISTS BRONZE.{table_name}_raw AS SELECT * FROM df")
-        logger.info(f"Successfully created BRONZE.{table_name}_raw")
-
-    except Exception as e:
-        logger.error(f"Error writing DataFrame to DuckDB: {e}")
+        upload_file_to_minio(parquet_path, bucket, object_name)
+        logger.info(f"Uploaded {parquet_path} to MinIO://{bucket}/{object_name}")
+        try:
+            os.remove(parquet_path)
+            logger.info(f"Removed local file {parquet_path} after upload.")
+        except Exception as rm_err:
+            logger.warning(f"Uploaded but failed to remove local file {parquet_path}: {rm_err}")
+        return True
+    except Exception as exc:
+        logger.error(f"Failed to upload {parquet_path} to MinIO: {exc}")
         raise
-    finally:
-        con.close()
-        logger.info("Closed DuckDB connection")
 
 def update_data(con, logger, bucket_name):
     logger.info("Starting Bronze layer ingestion")

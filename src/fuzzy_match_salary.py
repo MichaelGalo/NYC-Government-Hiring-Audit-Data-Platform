@@ -1,37 +1,32 @@
 import os
 import sys
-import re
-import string
-import glob
 
 current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(current_path, ".."))
 sys.path.append(parent_path)
 
 from logger import setup_logging
+from utils import (
+    normalize_title,
+    chunked,
+    write_batch_to_parquet,
+    merge_and_cleanup_batches,
+    upload_file_to_minio,
+    upload_parquet_and_remove_local,
+    get_most_recent_file,
+)
 from tqdm import tqdm
 from rapidfuzz import process, fuzz
 from datetime import datetime, timedelta
 import polars as pl
 import numpy as np
 
+
 logger = setup_logging()
 
 # ----------------------------
 # Utilities
 # ----------------------------
-punctuation_table = str.maketrans("", "", string.punctuation)
-
-def normalize_title(title):
-
-    if not isinstance(title, str):
-        return ""
-    title = title.lower()
-    title = title.translate(punctuation_table)
-    title = re.sub(r"\s+", " ", title)
-    return title.strip()
-
-
 def posting_dates_handler(jobs, days, posting_key, until_key, date_fmt):
     DEFAULT_DAYS = 30
     if not isinstance(jobs, list):
@@ -63,35 +58,6 @@ def posting_dates_handler(jobs, days, posting_key, until_key, date_fmt):
 
     return jobs
 
-def chunked(iterable, size):
-    total_length = len(iterable)
-    for start_index in range(0, total_length, size):
-        end_index = min(start_index + size, total_length)
-        yield start_index, end_index, iterable[start_index:end_index]
-
-def write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count):
-    for row in output_buffer:
-        for date_col in ["posting_date", "post_until"]:
-            if row[date_col] is not None:
-                row[date_col] = str(row[date_col])
-    batch_filename = output_parquet.replace(".parquet", f"_batch_{batch_count:03}.parquet")
-    pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
-    output_buffer.clear()
-    return batch_count + 1
-
-def merge_and_cleanup_batches(output_parquet, logger):
-    batch_files_pattern = output_parquet.replace(".parquet", "_batch_*.parquet")
-    batch_files = sorted(glob.glob(batch_files_pattern))
-    if batch_files:
-        logger.info(f"Merging {len(batch_files)} batch files into final Parquet...")
-        merged_df = pl.concat([pl.read_parquet(f) for f in batch_files])
-        merged_df.write_parquet(output_parquet)
-        logger.info(f"Final Parquet written to {output_parquet}")
-        for f in batch_files:
-            os.remove(f)
-        logger.info("Temporary batch files deleted.")
-    else:
-        logger.warning("No batch files found to merge.")
 
 def apply_limit_to_matches(matches_by_job, jobs_data, payroll_data, limit, output_buffer):
     for job_index, match_list in matches_by_job.items():
@@ -123,10 +89,6 @@ def fuzzy_match_payroll_to_jobs_vectorized(
     payroll_chunk_size,
     batch_size,
 ):
-    if not os.path.exists(payroll_path):
-        raise FileNotFoundError(f"File not found: {payroll_path}")
-    if not os.path.exists(jobs_path):
-        raise FileNotFoundError(f"File not found: {jobs_path}")
 
     payroll_columns = [
         "title_description",
@@ -144,8 +106,11 @@ def fuzzy_match_payroll_to_jobs_vectorized(
         "post_until",
     ]
 
-    payroll_df = pl.read_parquet(payroll_path, columns=payroll_columns)
-    jobs_df = pl.read_parquet(jobs_path, columns=jobs_columns)
+    payroll_file = get_most_recent_file(payroll_path)
+    jobs_file = get_most_recent_file(jobs_path)
+
+    payroll_df = pl.read_parquet(payroll_file, columns=payroll_columns)
+    jobs_df = pl.read_parquet(jobs_file, columns=jobs_columns)
 
     payroll_data = payroll_df.to_dicts()
     jobs_data = jobs_df.to_dicts()
@@ -239,7 +204,8 @@ def fuzzy_match_payroll_to_jobs_vectorized(
 
     # ---- Merge all batch files into single Parquet ----
     merge_and_cleanup_batches(output_parquet, logger)
-
+    # upload final parquet to MinIO and delete local copy
+    upload_parquet_and_remove_local(output_parquet, logger)
     logger.info(
         "Notes:\n"
         f" - Compared {len(job_titles_normalized):,} job titles against {len(payroll_titles_normalized):,} payroll titles.\n"
@@ -255,9 +221,9 @@ def fuzzy_match_payroll_to_jobs_vectorized(
 
 if __name__ == "__main__":
     fuzzy_match_payroll_to_jobs_vectorized(
-        payroll_path="data/nyc_payroll_data.parquet",
-        jobs_path="data/nyc_job_postings_data.parquet",
-        output_parquet="data/payroll_to_jobs_title_fuzzy_matches.parquet",
+        payroll_path="data/BRONZE/nyc_payroll_data_raw/",
+        jobs_path="data/BRONZE/nyc_job_postings_data_raw/",
+        output_parquet="data/SILVER/payroll_to_jobs_title_fuzzy_matches.parquet",
         score_cutoff=85,
         token_set_threshold=85,
         limit=None,
