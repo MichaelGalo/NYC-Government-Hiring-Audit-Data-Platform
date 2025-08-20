@@ -1,6 +1,10 @@
 Next steps:
-- apparently write another fuzzy match between the audited jobs and the lightcast jobs with a 75 ratio (business titles only) use all tables and literally give them 4 different dataset results
-- I need to go back and see if I am only returning the first fuzzy match or ALL fuzzy matches
+- needs new testing after function abstraction
+- Talk to Daniel about compute time and results
+- Function for converter for ingesting from API, then converting to parquet, then dropping into `data` & `minio`
+- Handle Null Date Values for New Fuzzy Matches
+- Remove 1.0 Fuzzy Matching Data,
+- Update API & Streamlit with new DataSets
 
 Payroll Columns:
 - agency_name
@@ -19,26 +23,14 @@ Job Posting Columns:
 - posting_date
 - post_until (if NULL assume a default of 30 days and mention it)
 
-Lightcast Executive Summary:
+Lightcast Columns (SOC):
 - title
 - total postings
 - median_posting_duration
 
-Lightcast Top Jobs Columns:
-- 
-
 Deliverable Datasets:
 - job salary match ratios (between job postings and actual payroll data)
 - job posting duration dataset (between audited jobs & lightcast data)
-
-
-Fuzzy Match Process:
--- maybe offer some other reports (that they didn't ask for, break lightcast for 4 tables)
-
-
-
-
-GRAB ALL occupation data (all tables, deliniated by the table name headers (top, SOC, etc.))
 
 
 Project Notes to Mention in Presentation:
@@ -46,3 +38,26 @@ Project Notes to Mention in Presentation:
 - mention Token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").
 - mention: While ONET is built upon the SOC framework and provides detailed information, SOC itself, as a classification system for all occupations, can be considered more comprehensive in its scope of coverage across the entire labor market, particularly due to its inclusion of residual occupations not explicitly covered by ONET's targeted data collection.
 - SOC = Standard Occupational Classification (a hierarchical system used to classify workers into occupational categories for the purpose of collecting, calculating, or disseminating data)
+
+
+Move from Fuzzy Match 1.0 to 2.0
+- Talk about iterations and spending the majority of my time less in data vis but in fuzzy land
+- Returning around 600 results, then further matched only to 2 felt off after feedback (I had a MVP, but I wanted to iterate on it and deep dive -- as I thought it was the primary learning objective of this project. That and creating our own architecture)
+- I instituted a new fuzzy_matching paradigm that used vectorization, Token Set Matching Pre-Filter, WRatio and specifying how many CPU cores I would allow for parallel processing among other things to return:
+    - Run time Total for No Limit: 2:23:19
+    - Total Returned Results for No Limit | 8,737,221
+    - 20+ parquet temp files that ultimately compile into a single monster dataset
+    - That 38.4B computations that were required (after lots of efficieny steps)
+
+- After that, it was time to compare that new dataset to the lightcast data using a similar approach albeit less computations.
+    - Run time Total for No Limit: 1:49
+    - Total Returned Results for No Limit | 30,714
+
+
+Move from Fuzzy Match 2.0 to 2.1
+- Further optimized fuzzy matching to filter years in payroll to reduce chunks from 63 7
+- Made adjustments to streamlit dashboard
+- Final matches:
+    -- Salary Match: ~700,000
+    -- Lightcast Durations: ~2,356
+    -- Run time Total for No Limit 2.1 : 12:47 | Total Returned Results: 693,669

@@ -1,12 +1,13 @@
-import unicodedata
 from logger import setup_logging
 from dotenv import load_dotenv
 import os
 import io
+import string
 import glob
+import re
 from minio import Minio
-import duckdb
 import sys
+import polars as pl
 current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(current_path, ".."))
 sys.path.append(parent_path)
@@ -14,70 +15,108 @@ sys.path.append(parent_path)
 load_dotenv()
 logger = setup_logging() 
 
-def normalize_string(input_string):
-    # normalizes for string comparison
-    if input_string is None:
+
+punctuation_table = str.maketrans("", "", string.punctuation)
+
+def normalize_title(title):
+
+    if not isinstance(title, str):
         return ""
-    normalized = unicodedata.normalize("NFKC", input_string).strip().upper()
-    return normalized
+    title = title.lower()
+    title = title.translate(punctuation_table)
+    title = re.sub(r"\s+", " ", title)
+    return title.strip()
 
-def get_latest_file(directory, extension="*.parquet"):
-    files = glob.glob(os.path.join(directory, extension))
-    if not files:
-        raise FileNotFoundError(f"No files with extension {extension} found in directory: {directory}")
-    latest_file = max(files, key=os.path.getctime)
-    return latest_file
 
-def write_csv_to_minio_stream(df, object_name):
+def get_most_recent_file(path, extension="*.parquet"):
+    if os.path.isfile(path):
+        return path
+    matches = (
+        glob.glob(path)
+        or glob.glob(os.path.join(path, extension))
+        or glob.glob(os.path.join(path, "**", extension), recursive=True)
+    )
+    if not matches:
+        raise FileNotFoundError(f"No files found matching {path} (ext={extension})")
+    return max(matches, key=os.path.getctime)
+
+def chunked(iterable, size):
+    total_length = len(iterable)
+    for start_index in range(0, total_length, size):
+        end_index = min(start_index + size, total_length)
+        yield start_index, end_index, iterable[start_index:end_index]
+
+def write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count):
+    for row in output_buffer:
+        for date_col in ["posting_date", "post_until"]:
+            if row[date_col] is not None:
+                row[date_col] = str(row[date_col])
+    batch_filename = output_parquet.replace(".parquet", f"_batch_{batch_count:03}.parquet")
+    # allow output_schema to be optional; fall back to schema inference
+    try:
+        if output_schema is not None:
+            pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
+        else:
+            pl.DataFrame(output_buffer).write_parquet(batch_filename)
+    except Exception:
+        # final fallback: let polars infer schema and write
+        pl.DataFrame(output_buffer).write_parquet(batch_filename)
+    output_buffer.clear()
+    return batch_count + 1
+
+def merge_and_cleanup_batches(output_parquet, logger):
+    batch_files_pattern = output_parquet.replace(".parquet", "_batch_*.parquet")
+    batch_files = sorted(glob.glob(batch_files_pattern))
+    if batch_files:
+        logger.info(f"Merging {len(batch_files)} batch files into final Parquet...")
+        merged_df = pl.concat([pl.read_parquet(f) for f in batch_files])
+        merged_df.write_parquet(output_parquet)
+        logger.info(f"Final Parquet written to {output_parquet}")
+        for f in batch_files:
+            os.remove(f)
+        logger.info("Temporary batch files deleted.")
+    else:
+        logger.warning("No batch files found to merge.")
+
+def upload_file_to_minio(file_path, bucket_name, object_name):
     client = Minio(
-        endpoint=os.getenv("MINIO_EXTERNAL_URL"),
+        os.getenv("MINIO_EXTERNAL_URL"),
         access_key=os.getenv("MINIO_ACCESS_KEY"),
         secret_key=os.getenv("MINIO_SECRET_KEY"),
-        secure=False
+        secure=False,
     )
-    minio_bucket = os.getenv("MINIO_BUCKET_NAME")
+    with open(file_path, "rb") as fh:
+        data = fh.read()
+    client.put_object(
+        bucket_name,
+        object_name,
+        io.BytesIO(data),
+        length=len(data),
+        content_type="application/x-parquet",
+    )
+
+def upload_parquet_and_remove_local(parquet_path, logger):
+    bucket = os.getenv("MINIO_BUCKET_NAME")
+    if not bucket:
+        logger.warning("MINIO_BUCKET_NAME not set; skipping upload to MinIO")
+        return False
+    object_name = os.path.basename(parquet_path)
     try:
-        buffer = io.BytesIO()
-        df.write_csv(buffer)
-        buffer.seek(0)
-        client.put_object(
-            minio_bucket,
-            object_name,
-            buffer,
-            length=buffer.getbuffer().nbytes,
-            content_type="application/csv"
-        )
-        logger.info(f"Streamed CSV to minio://{minio_bucket}/{object_name}")
-    except Exception as e:
-        logger.error(f"Error streaming to MinIO: {e}")
-
-
-def write_dataframe_to_bronze_table(df, table_name):
-    duckdb.install_extension("ducklake")
-    duckdb.install_extension("httpfs")
-    duckdb.load_extension("ducklake")
-    duckdb.load_extension("httpfs")
-    db_path = os.path.join(parent_path, "nyc_jobs_audit.db")
-    con = duckdb.connect(db_path)
-    data_path = os.path.join(parent_path, "data")
-    catalog_path = os.path.join(parent_path, "catalog.ducklake")
-    con.execute(f"ATTACH 'ducklake:{catalog_path}' AS my_ducklake (DATA_PATH '{data_path}')")
-    con.execute("USE my_ducklake")
-
-    try:
-        con.execute(f"CREATE TABLE IF NOT EXISTS BRONZE.{table_name}_raw AS SELECT * FROM df")
-        logger.info(f"Successfully created BRONZE.{table_name}_raw")
-
-    except Exception as e:
-        logger.error(f"Error writing DataFrame to DuckDB: {e}")
+        upload_file_to_minio(parquet_path, bucket, object_name)
+        logger.info(f"Uploaded {parquet_path} to MinIO://{bucket}/{object_name}")
+        try:
+            os.remove(parquet_path)
+            logger.info(f"Removed local file {parquet_path} after upload.")
+        except Exception as rm_err:
+            logger.warning(f"Uploaded but failed to remove local file {parquet_path}: {rm_err}")
+        return True
+    except Exception as exc:
+        logger.error(f"Failed to upload {parquet_path} to MinIO: {exc}")
         raise
-    finally:
-        con.close()
-        logger.info("Closed DuckDB connection")
 
 def update_data(con, logger, bucket_name):
     logger.info("Starting Bronze layer ingestion")
-    file_list_query = f"SELECT * FROM glob('s3://{bucket_name}/*.csv')"
+    file_list_query = f"SELECT * FROM glob('s3://{bucket_name}/*.parquet')"
 
     try:
         files_result = con.execute(file_list_query).fetchall()
@@ -88,23 +127,23 @@ def update_data(con, logger, bucket_name):
         logger.info(f"Found {len(file_paths)} files in MinIO bucket")
         
         for file_path in file_paths:
-            file_name = os.path.basename(file_path).replace('.csv', '')
+            file_name = os.path.basename(file_path).replace('.parquet', '')
             table_name = file_name.lower().replace('-', '_').replace(' ', '_')
 
-            logger.info(f"Processing file: {file_path} -> table: BRONZE.{table_name}_raw")
+            logger.info(f"Processing file: {file_path} -> table: BRONZE.{table_name}")
 
             BRONZE_query = f"""
-            CREATE TABLE IF NOT EXISTS BRONZE.{table_name}_raw AS
+            CREATE TABLE IF NOT EXISTS BRONZE.{table_name} AS
             SELECT 
                 *,
                 '{file_name}' AS _source_file,
                 CURRENT_TIMESTAMP AS _ingestion_timestamp,
                 ROW_NUMBER() OVER () AS _record_id
-            FROM read_csv_auto('{file_path}', header=true, ignore_errors=true, all_varchar=true);
+            FROM read_parquet('{file_path}');
             """
             
             con.execute(BRONZE_query)
-            logger.info(f"Successfully created or updated BRONZE.{table_name}_raw")
+            logger.info(f"Successfully created or updated BRONZE.{table_name}")
 
     except Exception as e:
         logger.error(f"Error processing files from MinIO: {e}")

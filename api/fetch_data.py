@@ -47,13 +47,14 @@ def fetch_single_dataset(dataset_id, offset, limit):
         con.execute("USE my_ducklake")
         logger.info("DuckLake attached and activated successfully")
 
-        query = """
-            SELECT * FROM {table_name}
+        # Use a fully parameterized query
+        query = f"""
+            SELECT * FROM {dataset['table_name']}
             OFFSET ?
             LIMIT ?
         """
         logger.info(f"Executing parameterized query on table: {dataset['table_name']}")
-        result = con.execute(query.format(table_name=dataset['table_name']), [offset, limit]).fetchall()
+        result = con.execute(query, [offset, limit]).fetchall()
         columns = [desc[0] for desc in con.description]
 
         data = [dict(zip(columns, row)) for row in result]
@@ -82,6 +83,6 @@ def get_reports_list():
         
         result.append({
             "id": dataset_id,
-            "table_name": stripped_table_name
+            "report": stripped_table_name
         })
     return result

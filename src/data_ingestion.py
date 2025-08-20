@@ -35,25 +35,34 @@ def fetch_api_data(base_url):
     api_data_dataframe = pl.DataFrame(all_data)
     return api_data_dataframe
 
+@task(name="Convert CSV to Parquet")
+def convert_csv_to_parquet(dataframe):
+    buffer = io.BytesIO()
+    try:
+        dataframe.write_parquet(buffer)
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        logger.error(f"Failed to convert DataFrame to Parquet in-memory: {e}")
+        return None
+
 @task(name="Write Data to MinIO")
-def write_data_to_minio(dataframe, bucket_name, object_name):
+def write_data_to_minio(parquet_buffer, bucket_name, object_name):
     minio_client = Minio(
         os.getenv("MINIO_EXTERNAL_URL"),
         access_key=os.getenv("MINIO_ACCESS_KEY"),
         secret_key=os.getenv("MINIO_SECRET_KEY"),
         secure=False
     )
-    csv_buffer = io.BytesIO()
-    dataframe.write_csv(csv_buffer)
-    csv_buffer.seek(0)
-    csv_bytes = csv_buffer.read()
+    parquet_buffer.seek(0)
+    data_bytes = parquet_buffer.read()
     
     minio_client.put_object(
         bucket_name,
         object_name,
-        io.BytesIO(csv_bytes),
-        length=len(csv_bytes),
-        content_type="text/csv",
+        io.BytesIO(data_bytes),
+        length=len(data_bytes),
+        content_type="application/x-parquet",
     )
 
 
@@ -63,16 +72,18 @@ def run_data_ingestion():
     payroll_url = os.getenv("NYC_PAYROLL_DATA_API")
     job_postings_url = os.getenv("NYC_JOB_POSTINGS_API")
     minio_bucket = os.getenv("MINIO_BUCKET_NAME")
-    nyc_payroll_filename = "nyc_payroll_data.csv"
-    nyc_job_postings_filename = "nyc_job_postings_data.csv"
+    nyc_payroll_filename = "nyc_payroll_data.parquet"
+    nyc_job_postings_filename = "nyc_job_postings_data.parquet"
 
-    nyc_payroll_data = fetch_api_data(payroll_url)
+    nyc_payroll_dataframe = fetch_api_data(payroll_url)
+    payroll_parquet_buffer = convert_csv_to_parquet(nyc_payroll_dataframe)
     logger.info("Writing NYC Payroll Data to MinIO Storage")
-    write_data_to_minio(nyc_payroll_data, minio_bucket, nyc_payroll_filename)
+    write_data_to_minio(payroll_parquet_buffer, minio_bucket, nyc_payroll_filename)
 
-    nyc_job_postings_data = fetch_api_data(job_postings_url)
+    nyc_job_postings_dataframe = fetch_api_data(job_postings_url)
+    job_postings_parquet_buffer = convert_csv_to_parquet(nyc_job_postings_dataframe)
     logger.info("Writing NYC Job Postings Data to MinIO Storage")
-    write_data_to_minio(nyc_job_postings_data, minio_bucket, nyc_job_postings_filename)
+    write_data_to_minio(job_postings_parquet_buffer, minio_bucket, nyc_job_postings_filename)
     tock = time.time() - tick
 
     logger.info("Synchronizing Data to Database")
@@ -89,3 +100,5 @@ if __name__ == "__main__":
         ), # sundays at midnight
         tags=["data_ingestion", "weekly"]
     )
+
+# full data ingestion run time: 13 minutes, 40 seconds

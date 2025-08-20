@@ -30,7 +30,7 @@ def read_health():
         logger.error(f"Error fetching health status: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-@app.get("/reports-list", tags=["Reports"])
+@app.get("/reports", tags=["Reports"])
 def read_reports_list():
     try:
         reports = get_reports_list()
