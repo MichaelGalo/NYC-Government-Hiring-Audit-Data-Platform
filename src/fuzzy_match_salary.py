@@ -254,8 +254,6 @@ if __name__ == "__main__":
         year_end=2025
     )
 
-    db_sync()
-
 
 # Token set pre-filter (threshold 85)
 # WRatio matching

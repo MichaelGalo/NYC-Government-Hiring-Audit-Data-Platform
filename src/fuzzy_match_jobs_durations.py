@@ -10,7 +10,7 @@ from db_sync import db_sync
 from logger import setup_logging
 from tqdm import tqdm
 from rapidfuzz import process, fuzz
-from utils import normalize_title, chunked, write_batch_to_parquet, merge_and_cleanup_batches
+from utils import normalize_title, chunked, write_batch_to_parquet, merge_and_cleanup_batches, upload_parquet_and_remove_local, get_most_recent_file
 import polars as pl
 import numpy as np
 
@@ -43,14 +43,19 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 	payroll_chunk_size,
 	batch_size
 ):
-	if not os.path.exists(payroll_jobs_path):
-		raise FileNotFoundError(f"File not found: {payroll_jobs_path}")
-	if not os.path.exists(lightcast_path):
-		raise FileNotFoundError(f"File not found: {lightcast_path}")
+	try:
+		payroll_file = get_most_recent_file(payroll_jobs_path)
+	except FileNotFoundError:
+		raise FileNotFoundError(f"No payroll parquet file found for: {payroll_jobs_path}")
+
+	try:
+		lightcast_file = get_most_recent_file(lightcast_path)
+	except FileNotFoundError:
+		raise FileNotFoundError(f"No lightcast parquet file found for: {lightcast_path}")
 
 	# Read minimal columns from payroll->jobs results and from lightcast
-	payroll_df = pl.read_parquet(payroll_jobs_path)
-	lightcast_df = pl.read_parquet(lightcast_path)
+	payroll_df = pl.read_parquet(payroll_file)
+	lightcast_df = pl.read_parquet(lightcast_file)
 
 	# Determine which field to use from payroll file for matching (business_title or job_title)
 	title_field_candidates = ["business_title", "job_title", "title_description"]
@@ -123,16 +128,19 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 
 		# Write batches to disk
 		if len(output_buffer) >= batch_size:
-			batch_count = write_batch_to_parquet(output_buffer, output_parquet, batch_count)
+			batch_count = write_batch_to_parquet(output_buffer, None, output_parquet, batch_count)
 
 	# flush last batch
 	if output_buffer:
-		batch_count = write_batch_to_parquet(output_buffer, output_parquet, batch_count)
+		batch_count = write_batch_to_parquet(output_buffer, None, output_parquet, batch_count)
 
 	logger.info(f"Intermediate matching complete. {batch_count} batch files written.")
 
 	# Merge batches
 	merge_and_cleanup_batches(output_parquet, logger)
+
+	# Upload final parquet to MinIO and remove local copy
+	upload_parquet_and_remove_local(output_parquet, logger)
 
 	logger.info(
 		"Notes:\n"
@@ -147,8 +155,8 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 
 if __name__ == "__main__":
 	fuzzy_match_jobs_to_lightcast_vectorized(
-		payroll_jobs_path="data/BRONZE/payroll_to_jobs_title_fuzzy_matches.parquet",
-		lightcast_path="data/BRONZE/lightcast_top_posted_occupations_SOC.parquet",
+		payroll_jobs_path="data/BRONZE/payroll_to_jobs_title_fuzzy_matches/",
+		lightcast_path="data/BRONZE/lightcast_top_posted_occupations_SOC/",
 		output_parquet="data/BRONZE/jobs_to_lightcast_title_fuzzy_matches.parquet",
 		score_cutoff=75,
 		token_set_threshold=75,
@@ -156,5 +164,3 @@ if __name__ == "__main__":
 		payroll_chunk_size=100_000,
 		batch_size=100_000,
 	)
-
-	# db_sync()
