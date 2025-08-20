@@ -6,6 +6,7 @@ current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(current_path, ".."))
 sys.path.append(parent_path)
 
+from db_sync import db_sync
 from logger import setup_logging
 from tqdm import tqdm
 from rapidfuzz import process, fuzz
@@ -31,9 +32,7 @@ def apply_limit_to_matches(matches_by_payroll_index, payroll_data, lightcast_dat
 				out_row[col] = lightcast_row.get(col)
 			output_buffer.append(out_row)
 
-# ----------------------------
-# Main vectorized fuzzy match
-# ----------------------------
+
 def fuzzy_match_jobs_to_lightcast_vectorized(
 	payroll_jobs_path,
 	lightcast_path,
@@ -157,3 +156,5 @@ if __name__ == "__main__":
 		payroll_chunk_size=100_000,
 		batch_size=100_000,
 	)
+
+	# db_sync()

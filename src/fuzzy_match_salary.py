@@ -14,6 +14,7 @@ from utils import (
     upload_parquet_and_remove_local,
     get_most_recent_file,
 )
+from db_sync import db_sync
 from tqdm import tqdm
 from rapidfuzz import process, fuzz
 from datetime import datetime, timedelta
@@ -252,6 +253,8 @@ if __name__ == "__main__":
         year_start=2024,
         year_end=2025
     )
+
+    db_sync()
 
 
 # Token set pre-filter (threshold 85)
