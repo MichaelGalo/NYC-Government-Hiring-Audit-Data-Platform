@@ -52,3 +52,12 @@ Move from Fuzzy Match 1.0 to 2.0
 - After that, it was time to compare that new dataset to the lightcast data using a similar approach albeit less computations.
     - Run time Total for No Limit: 1:49
     - Total Returned Results for No Limit | 30,714
+
+
+Move from Fuzzy Match 2.0 to 2.1
+- Further optimized fuzzy matching to filter years in payroll to reduce chunks from 63 7
+- Made adjustments to streamlit dashboard
+- Final matches:
+    -- Salary Match: ~700,000
+    -- Lightcast Durations: ~2,356
+    -- Run time Total for No Limit 2.1 : 12:47 | Total Returned Results: 693,669
