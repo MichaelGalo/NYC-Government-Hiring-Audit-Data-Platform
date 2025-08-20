@@ -1,9 +1,6 @@
 
 import os
 import sys
-import re
-import string
-import glob
 
 current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(current_path, ".."))
@@ -12,81 +9,13 @@ sys.path.append(parent_path)
 from logger import setup_logging
 from tqdm import tqdm
 from rapidfuzz import process, fuzz
+from utils import normalize_title, chunked, write_batch_to_parquet, merge_and_cleanup_batches
 import polars as pl
 import numpy as np
 
 logger = setup_logging()
 
-# ----------------------------
-# Utilities
-# ----------------------------
-punctuation_table = str.maketrans("", "", string.punctuation)
-
-def normalize_text(text):
-	"""Normalize a text string: lowercase, remove punctuation, collapse whitespace."""
-	if not isinstance(text, str):
-		return ""
-	text = text.lower()
-	text = text.translate(punctuation_table)
-	text = re.sub(r"\s+", " ", text)
-	return text.strip()
-
-def chunked(iterable, size):
-	total_length = len(iterable)
-	for start_index in range(0, total_length, size):
-		end_index = min(start_index + size, total_length)
-		yield start_index, end_index, iterable[start_index:end_index]
-
-
-def write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count):
-	"""Write current output_buffer to a batch Parquet file and clear the buffer.
-
-	Attempts to stringify known date columns before write. If an explicit
-	schema is provided, it will be used when constructing the DataFrame; if
-	the provided schema does not match the rows, falls back to automatic schema.
-	"""
-	# stringify date-like columns if present
-	for row in output_buffer:
-		for date_col in ["posting_date", "post_until"]:
-			if date_col in row and row[date_col] is not None:
-				row[date_col] = str(row[date_col])
-
-	batch_filename = output_parquet.replace(".parquet", f"_batch_{batch_count:03}.parquet")
-	try:
-		if output_schema is not None:
-			pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
-		else:
-			pl.DataFrame(output_buffer).write_parquet(batch_filename)
-	except Exception:
-		# fallback: let polars infer schema
-		pl.DataFrame(output_buffer).write_parquet(batch_filename)
-
-	output_buffer.clear()
-	return batch_count + 1
-
-
-def merge_and_cleanup_batches(output_parquet, logger):
-	"""Merge any batch parquet files into the final output and remove temporary batches."""
-	batch_files_pattern = output_parquet.replace(".parquet", "_batch_*.parquet")
-	batch_files = sorted(glob.glob(batch_files_pattern))
-	if batch_files:
-		logger.info(f"Merging {len(batch_files)} batch files into final Parquet...")
-		merged_df = pl.concat([pl.read_parquet(batch_file) for batch_file in batch_files])
-		merged_df.write_parquet(output_parquet)
-		logger.info(f"Final Parquet written to {output_parquet}")
-		for batch_file in batch_files:
-			os.remove(batch_file)
-		logger.info("Temporary batch files deleted.")
-	else:
-		logger.warning("No batch files found to merge.")
-
-
 def apply_limit_to_matches(matches_by_payroll_index, payroll_data, lightcast_data, limit_per_job, output_buffer, lightcast_title_field, lightcast_keep_cols):
-	"""Apply optional per-payroll limit and append matched rows to output_buffer.
-
-	Parameters mirror the shape used in the salary script's helper but are
-	specialized for the payroll->lightcast matching domain.
-	"""
 	for payroll_global_index, match_list in matches_by_payroll_index.items():
 		sorted_matches = sorted(match_list, key=lambda pair: pair[1], reverse=True)
 		if limit_per_job is not None:
@@ -103,7 +32,7 @@ def apply_limit_to_matches(matches_by_payroll_index, payroll_data, lightcast_dat
 			output_buffer.append(out_row)
 
 # ----------------------------
-# Main vectorized fuzzy match: match the payroll->jobs output to Lightcast occupations
+# Main vectorized fuzzy match
 # ----------------------------
 def fuzzy_match_jobs_to_lightcast_vectorized(
 	payroll_jobs_path,
@@ -140,8 +69,8 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 	payroll_data = payroll_df.to_dicts()
 	lightcast_data = lightcast_df.to_dicts()
 
-	payroll_titles_norm = [normalize_text(row.get(payroll_title_field, "")) for row in payroll_data]
-	lightcast_titles_norm = [normalize_text(row.get(lightcast_title_field, "")) for row in lightcast_data]
+	payroll_titles_norm = [normalize_title(row.get(payroll_title_field, "")) for row in payroll_data]
+	lightcast_titles_norm = [normalize_title(row.get(lightcast_title_field, "")) for row in lightcast_data]
 
 	# Create lookup from normalized lightcast title -> original row index (if duplicates, keep first)
 	lightcast_lookup = {}
@@ -219,9 +148,9 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 
 if __name__ == "__main__":
 	fuzzy_match_jobs_to_lightcast_vectorized(
-		payroll_jobs_path="data/payroll_to_jobs_title_fuzzy_matches.parquet",
-		lightcast_path="data/lightcast_top_posted_occupations_SOC.parquet",
-		output_parquet="data/jobs_to_lightcast_title_fuzzy_matches.parquet",
+		payroll_jobs_path="data/BRONZE/payroll_to_jobs_title_fuzzy_matches.parquet",
+		lightcast_path="data/BRONZE/lightcast_top_posted_occupations_SOC.parquet",
+		output_parquet="data/BRONZE/jobs_to_lightcast_title_fuzzy_matches.parquet",
 		score_cutoff=75,
 		token_set_threshold=75,
 		limit_per_job=None,

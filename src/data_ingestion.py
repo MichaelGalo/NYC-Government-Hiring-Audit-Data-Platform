@@ -35,7 +35,7 @@ def fetch_api_data(base_url):
     api_data_dataframe = pl.DataFrame(all_data)
     return api_data_dataframe
 
-# @task(name="Convert CSV to Parquet")
+@task(name="Convert CSV to Parquet")
 def convert_csv_to_parquet(dataframe):
     buffer = io.BytesIO()
     try:
@@ -100,3 +100,5 @@ if __name__ == "__main__":
         ), # sundays at midnight
         tags=["data_ingestion", "weekly"]
     )
+
+# full data ingestion run time: 13 minutes, 40 seconds

@@ -11,7 +11,6 @@ from utils import (
     chunked,
     write_batch_to_parquet,
     merge_and_cleanup_batches,
-    upload_file_to_minio,
     upload_parquet_and_remove_local,
     get_most_recent_file,
 )
@@ -21,12 +20,8 @@ from datetime import datetime, timedelta
 import polars as pl
 import numpy as np
 
-
 logger = setup_logging()
 
-# ----------------------------
-# Utilities
-# ----------------------------
 def posting_dates_handler(jobs, days, posting_key, until_key, date_fmt):
     DEFAULT_DAYS = 30
     if not isinstance(jobs, list):
@@ -39,22 +34,22 @@ def posting_dates_handler(jobs, days, posting_key, until_key, date_fmt):
         if until_val in (None, ""):
             post_val = row.get(posting_key)
             if post_val:
-                dt = None
+                parsed_datetime = None
                 if isinstance(post_val, datetime):
-                    dt = post_val
+                    parsed_datetime = post_val
                 else:
                     try:
-                        dt = datetime.fromisoformat(post_val)
+                        parsed_datetime = datetime.fromisoformat(post_val)
                     except Exception:
-                        for fmt in parse_formats:
+                        for parse_format in parse_formats:
                             try:
-                                dt = datetime.strptime(post_val, fmt)
+                                parsed_datetime = datetime.strptime(post_val, parse_format)
                                 break
                             except Exception:
                                 continue
-                if dt:
+                if parsed_datetime:
                     add_days = DEFAULT_DAYS if days is None else days
-                    row[until_key] = (dt + timedelta(days=add_days)).strftime(date_fmt).upper()
+                    row[until_key] = (parsed_datetime + timedelta(days=add_days)).strftime(date_fmt).upper()
 
     return jobs
 
@@ -76,9 +71,7 @@ def apply_limit_to_matches(matches_by_job, jobs_data, payroll_data, limit, outpu
             ):
                 output_buffer.append({**job_row, **payroll_row, "score": match_score})
 
-# ----------------------------
-# Main function
-# ----------------------------
+
 def fuzzy_match_payroll_to_jobs_vectorized(
     payroll_path,
     jobs_path,
@@ -88,6 +81,8 @@ def fuzzy_match_payroll_to_jobs_vectorized(
     limit,
     payroll_chunk_size,
     batch_size,
+    year_start,
+    year_end
 ):
 
     payroll_columns = [
@@ -97,6 +92,7 @@ def fuzzy_match_payroll_to_jobs_vectorized(
         "regular_gross_paid",
         "total_ot_paid",
         "total_other_pay",
+        "fiscal_year"
     ]
     jobs_columns = [
         "business_title",
@@ -110,7 +106,31 @@ def fuzzy_match_payroll_to_jobs_vectorized(
     jobs_file = get_most_recent_file(jobs_path)
 
     payroll_df = pl.read_parquet(payroll_file, columns=payroll_columns)
+    payroll_df = payroll_df.with_columns(
+        pl.col("fiscal_year").cast(pl.Int32).alias("fiscal_year")
+    )
+    payroll_df = payroll_df.filter(pl.col("fiscal_year").is_between(int(year_start), int(year_end)))
+
     jobs_df = pl.read_parquet(jobs_file, columns=jobs_columns)
+
+    # --- Thorough parsing/normalization for the remaining rows ---
+    jobs_df = jobs_df.with_columns(
+        pl.coalesce(
+            [
+                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S%.f", strict=False),
+                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S", strict=False),
+                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%d", strict=False),
+                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%d-%b-%Y", strict=False),
+            ]
+        ).alias("posting_date_parsed")
+    )
+
+    # After extracting years and collecting, require that parsing succeeded to ensure a canonical posting_date
+    jobs_df = jobs_df.filter(pl.col("posting_date_parsed").is_not_null())
+
+    jobs_df = jobs_df.with_columns(
+        pl.col("posting_date_parsed").dt.strftime("%Y-%m-%dT%H:%M:%S").alias("posting_date")
+    ).drop("posting_date_parsed")
 
     payroll_data = payroll_df.to_dicts()
     jobs_data = jobs_df.to_dicts()
@@ -221,17 +241,18 @@ def fuzzy_match_payroll_to_jobs_vectorized(
 
 if __name__ == "__main__":
     fuzzy_match_payroll_to_jobs_vectorized(
-        payroll_path="data/BRONZE/nyc_payroll_data_raw/",
-        jobs_path="data/BRONZE/nyc_job_postings_data_raw/",
-        output_parquet="data/SILVER/payroll_to_jobs_title_fuzzy_matches.parquet",
+        payroll_path="data/BRONZE/nyc_payroll_data/",
+        jobs_path="data/BRONZE/nyc_job_postings_data/",
+        output_parquet="data/BRONZE/payroll_to_jobs_title_fuzzy_matches.parquet",
         score_cutoff=85,
         token_set_threshold=85,
         limit=None,
         payroll_chunk_size=100_000,
         batch_size=100_000,
+        year_start=2024,
+        year_end=2025
     )
 
-#FIXME: Before Production switch, draw the raw api parquets from MinIO
 
 # Token set pre-filter (threshold 85)
 # WRatio matching
@@ -244,4 +265,5 @@ if __name__ == "__main__":
 # Merging all batch files into a single final Parquet
 # Automatic deletion of temporary batch files
 
-# Run time Total for No Limit: 2:23:19 | Total Returned Results: 8,737,221
+# Run time Total for No Limit 2.0 : 2:23:19 | Total Returned Results: 8,737,221
+# Run time Total for No Limit 2.1 : 12:47 | Total Returned Results: 562,898

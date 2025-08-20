@@ -47,7 +47,6 @@ def db_sync():
 
     logger.info("Creating database schemas")
     con.execute("CREATE SCHEMA IF NOT EXISTS BRONZE")
-    con.execute("CREATE SCHEMA IF NOT EXISTS SILVER")
     con.execute("CREATE SCHEMA IF NOT EXISTS GOLD")
     logger.info("Database schemas created successfully")
 

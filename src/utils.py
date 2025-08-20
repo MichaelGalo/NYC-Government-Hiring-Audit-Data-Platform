@@ -52,7 +52,15 @@ def write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_c
             if row[date_col] is not None:
                 row[date_col] = str(row[date_col])
     batch_filename = output_parquet.replace(".parquet", f"_batch_{batch_count:03}.parquet")
-    pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
+    # allow output_schema to be optional; fall back to schema inference
+    try:
+        if output_schema is not None:
+            pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
+        else:
+            pl.DataFrame(output_buffer).write_parquet(batch_filename)
+    except Exception:
+        # final fallback: let polars infer schema and write
+        pl.DataFrame(output_buffer).write_parquet(batch_filename)
     output_buffer.clear()
     return batch_count + 1
 
@@ -122,10 +130,10 @@ def update_data(con, logger, bucket_name):
             file_name = os.path.basename(file_path).replace('.parquet', '')
             table_name = file_name.lower().replace('-', '_').replace(' ', '_')
 
-            logger.info(f"Processing file: {file_path} -> table: BRONZE.{table_name}_raw")
+            logger.info(f"Processing file: {file_path} -> table: BRONZE.{table_name}")
 
             BRONZE_query = f"""
-            CREATE TABLE IF NOT EXISTS BRONZE.{table_name}_raw AS
+            CREATE TABLE IF NOT EXISTS BRONZE.{table_name} AS
             SELECT 
                 *,
                 '{file_name}' AS _source_file,
@@ -135,7 +143,7 @@ def update_data(con, logger, bucket_name):
             """
             
             con.execute(BRONZE_query)
-            logger.info(f"Successfully created or updated BRONZE.{table_name}_raw")
+            logger.info(f"Successfully created or updated BRONZE.{table_name}")
 
     except Exception as e:
         logger.error(f"Error processing files from MinIO: {e}")
