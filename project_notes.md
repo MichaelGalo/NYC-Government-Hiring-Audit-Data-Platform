@@ -1,6 +1,8 @@
 Next steps:
-- apparently write another fuzzy match between the audited jobs and the lightcast jobs with a 75 ratio (business titles only) use all tables and literally give them 4 different dataset results
-- I need to go back and see if I am only returning the first fuzzy match or ALL fuzzy matches
+- Handle Null Date Values for New Fuzzy Matches
+- Remove 1.0 Fuzzy Matching
+- Talk to Daniel about compute time and results
+- Update API & Streamlit with new DataSets
 
 Payroll Columns:
 - agency_name
@@ -19,26 +21,14 @@ Job Posting Columns:
 - posting_date
 - post_until (if NULL assume a default of 30 days and mention it)
 
-Lightcast Executive Summary:
+Lightcast Columns (SOC):
 - title
 - total postings
 - median_posting_duration
 
-Lightcast Top Jobs Columns:
-- 
-
 Deliverable Datasets:
 - job salary match ratios (between job postings and actual payroll data)
 - job posting duration dataset (between audited jobs & lightcast data)
-
-
-Fuzzy Match Process:
--- maybe offer some other reports (that they didn't ask for, break lightcast for 4 tables)
-
-
-
-
-GRAB ALL occupation data (all tables, deliniated by the table name headers (top, SOC, etc.))
 
 
 Project Notes to Mention in Presentation:
@@ -49,9 +39,14 @@ Project Notes to Mention in Presentation:
 
 
 Move from Fuzzy Match 1.0 to 2.0
-- Returning around 600 results, then further matched only to 2 felt off after feedback
-- I instituted a new fuzzy_matching paradigm that used vectorization, Token Set Matching Pre-Filter, WRatio among other things to return:
+- Talk about iterations and spending the majority of my time less in data vis but in fuzzy land
+- Returning around 600 results, then further matched only to 2 felt off after feedback (I had a MVP, but I wanted to iterate on it and deep dive -- as I thought it was the primary learning objective of this project. That and creating our own architecture)
+- I instituted a new fuzzy_matching paradigm that used vectorization, Token Set Matching Pre-Filter, WRatio and specifying how many CPU cores I would allow for parallel processing among other things to return:
     - Run time Total for No Limit: 2:23:19
-    - Total Returned Results for No Limit | No Distinct: 8,737,221
+    - Total Returned Results for No Limit | 8,737,221
+    - 20+ parquet temp files that ultimately compile into a single monster dataset
+    - That 38.4B computations that were required (after lots of efficieny steps)
 
-- After that, I decided it was worth setting limits as many of the results I was returning were duplicate titles/payroll titles (though these looked to match actual different jobs based on their variance in pay).
+- After that, it was time to compare that new dataset to the lightcast data using a similar approach albeit less computations.
+    - Run time Total for No Limit: 1:49
+    - Total Returned Results for No Limit | 30,714

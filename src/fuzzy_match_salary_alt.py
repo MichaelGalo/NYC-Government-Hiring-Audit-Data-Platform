@@ -232,6 +232,8 @@ if __name__ == "__main__":
         batch_size=100_000,
     )
 
+#FIXME: Before Production switch, redirect to the correct `Data` folder
+#FIXME: Before Production switch, draw the raw api parquets from MinIO
 
 # Token set pre-filter (threshold 85)
 # WRatio matching
