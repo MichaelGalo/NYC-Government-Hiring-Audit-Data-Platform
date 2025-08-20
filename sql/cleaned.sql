@@ -11,7 +11,7 @@ SELECT
     regular_gross_paid AS actual_gross_paid,
     total_ot_paid AS actual_ot_paid,
     total_other_pay AS actual_other_pay
-FROM BRONZE.jobs_to_lightcast_title_fuzzy_matches
+FROM BRONZE.payroll_to_jobs_title_fuzzy_matches
 ORDER BY match_score DESC;
 
 CREATE TABLE IF NOT EXISTS GOLD.nyc_matched_job_posting_duration_SOC AS

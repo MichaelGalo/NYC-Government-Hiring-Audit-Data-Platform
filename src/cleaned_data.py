@@ -1,4 +1,4 @@
-from prefect import flow, task
+from prefect import flow
 from dotenv import load_dotenv
 from logger import setup_logging
 from prefect.client.schemas.schedules import CronSchedule
@@ -9,11 +9,13 @@ import duckdb
 current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(current_path, ".."))
 sys.path.append(parent_path)
+from db_sync import db_sync
 load_dotenv()
 logger = setup_logging()
 
 @flow(name="business_logic_aggregation")
 def run_gold_layer():
+    db_sync()
     gold_start_time = time.time()
 
     duckdb.install_extension("ducklake")
