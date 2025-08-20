@@ -28,30 +28,6 @@ def get_latest_file(directory, extension="*.parquet"):
     latest_file = max(files, key=os.path.getctime)
     return latest_file
 
-def write_csv_to_minio_stream(df, object_name):
-    client = Minio(
-        endpoint=os.getenv("MINIO_EXTERNAL_URL"),
-        access_key=os.getenv("MINIO_ACCESS_KEY"),
-        secret_key=os.getenv("MINIO_SECRET_KEY"),
-        secure=False
-    )
-    minio_bucket = os.getenv("MINIO_BUCKET_NAME")
-    try:
-        buffer = io.BytesIO()
-        df.write_csv(buffer)
-        buffer.seek(0)
-        client.put_object(
-            minio_bucket,
-            object_name,
-            buffer,
-            length=buffer.getbuffer().nbytes,
-            content_type="application/csv"
-        )
-        logger.info(f"Streamed CSV to minio://{minio_bucket}/{object_name}")
-    except Exception as e:
-        logger.error(f"Error streaming to MinIO: {e}")
-
-
 def write_dataframe_to_bronze_table(df, table_name):
     duckdb.install_extension("ducklake")
     duckdb.install_extension("httpfs")
@@ -77,7 +53,7 @@ def write_dataframe_to_bronze_table(df, table_name):
 
 def update_data(con, logger, bucket_name):
     logger.info("Starting Bronze layer ingestion")
-    file_list_query = f"SELECT * FROM glob('s3://{bucket_name}/*.csv')"
+    file_list_query = f"SELECT * FROM glob('s3://{bucket_name}/*.parquet')"
 
     try:
         files_result = con.execute(file_list_query).fetchall()
@@ -88,7 +64,7 @@ def update_data(con, logger, bucket_name):
         logger.info(f"Found {len(file_paths)} files in MinIO bucket")
         
         for file_path in file_paths:
-            file_name = os.path.basename(file_path).replace('.csv', '')
+            file_name = os.path.basename(file_path).replace('.parquet', '')
             table_name = file_name.lower().replace('-', '_').replace(' ', '_')
 
             logger.info(f"Processing file: {file_path} -> table: BRONZE.{table_name}_raw")
@@ -100,7 +76,7 @@ def update_data(con, logger, bucket_name):
                 '{file_name}' AS _source_file,
                 CURRENT_TIMESTAMP AS _ingestion_timestamp,
                 ROW_NUMBER() OVER () AS _record_id
-            FROM read_csv_auto('{file_path}', header=true, ignore_errors=true, all_varchar=true);
+            FROM read_parquet('{file_path}');
             """
             
             con.execute(BRONZE_query)
