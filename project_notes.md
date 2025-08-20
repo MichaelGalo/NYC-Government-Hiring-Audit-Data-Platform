@@ -1,7 +1,8 @@
 Next steps:
-- Handle Null Date Values for New Fuzzy Matches
-- Remove 1.0 Fuzzy Matching
 - Talk to Daniel about compute time and results
+- Function for converter for ingesting from API, then converting to parquet, then dropping into `data` & `minio`
+- Handle Null Date Values for New Fuzzy Matches
+- Remove 1.0 Fuzzy Matching Data,
 - Update API & Streamlit with new DataSets
 
 Payroll Columns:

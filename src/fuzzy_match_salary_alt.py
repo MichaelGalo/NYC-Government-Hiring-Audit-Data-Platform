@@ -18,12 +18,12 @@ import numpy as np
 logger = setup_logging()
 
 # ----------------------------
-# Normalization helper
+# Utilities
 # ----------------------------
 punctuation_table = str.maketrans("", "", string.punctuation)
 
-def normalize_title(title: str) -> str:
-    """Normalize job/payroll titles for fuzzy matching only."""
+def normalize_title(title):
+
     if not isinstance(title, str):
         return ""
     title = title.lower()
@@ -31,29 +31,65 @@ def normalize_title(title: str) -> str:
     title = re.sub(r"\s+", " ", title)
     return title.strip()
 
-
-# ----------------------------
-# Chunk utility
-# ----------------------------
-def chunked(iterable: List, size: int) -> Iterable[tuple[int, int, List]]:
+def chunked(iterable, size):
     total_length = len(iterable)
     for start_index in range(0, total_length, size):
         end_index = min(start_index + size, total_length)
         yield start_index, end_index, iterable[start_index:end_index]
 
+def write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count):
+    for row in output_buffer:
+        for date_col in ["posting_date", "post_until"]:
+            if row[date_col] is not None:
+                row[date_col] = str(row[date_col])
+    batch_filename = output_parquet.replace(".parquet", f"_batch_{batch_count:03}.parquet")
+    pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
+    output_buffer.clear()
+    return batch_count + 1
+
+def merge_and_cleanup_batches(output_parquet, logger):
+    batch_files_pattern = output_parquet.replace(".parquet", "_batch_*.parquet")
+    batch_files = sorted(glob.glob(batch_files_pattern))
+    if batch_files:
+        logger.info(f"Merging {len(batch_files)} batch files into final Parquet...")
+        merged_df = pl.concat([pl.read_parquet(f) for f in batch_files])
+        merged_df.write_parquet(output_parquet)
+        logger.info(f"Final Parquet written to {output_parquet}")
+        for f in batch_files:
+            os.remove(f)
+        logger.info("Temporary batch files deleted.")
+    else:
+        logger.warning("No batch files found to merge.")
+
+def apply_limit_to_matches(matches_by_job, jobs_data, payroll_data, limit, output_buffer):
+    for job_index, match_list in matches_by_job.items():
+        match_list = sorted(match_list, key=lambda x: x[1], reverse=True)[:limit]
+        job_row = jobs_data[job_index]
+        for payroll_index_global, match_score in match_list:
+            payroll_row = payroll_data[payroll_index_global]
+            payroll_salary = payroll_row["base_salary"]
+            job_salary_min = job_row["salary_range_from"]
+            job_salary_max = job_row["salary_range_to"]
+            if (
+                payroll_salary is not None
+                and job_salary_min is not None
+                and job_salary_max is not None
+                and job_salary_min <= payroll_salary <= job_salary_max
+            ):
+                output_buffer.append({**job_row, **payroll_row, "score": match_score})
 
 # ----------------------------
 # Main function
 # ----------------------------
 def fuzzy_match_payroll_to_jobs_vectorized(
-    payroll_path: str = "alt_data/nyc_payroll_data.parquet",
-    jobs_path: str = "alt_data/nyc_job_postings_data.parquet",
-    output_parquet: str = "alt_data/payroll_to_jobs_title_fuzzy_matches.parquet",
-    score_cutoff: int = 85,
-    token_set_threshold: int = 85,
-    limit: int | None = None,
-    payroll_chunk_size: int = 100_000,
-    batch_size: int = 100_000,
+    payroll_path,
+    jobs_path,
+    output_parquet,
+    score_cutoff,
+    token_set_threshold,
+    limit,
+    payroll_chunk_size,
+    batch_size,
 ):
     if not os.path.exists(payroll_path):
         raise FileNotFoundError(f"File not found: {payroll_path}")
@@ -79,8 +115,8 @@ def fuzzy_match_payroll_to_jobs_vectorized(
     payroll_df = pl.read_parquet(payroll_path, columns=payroll_columns)
     jobs_df = pl.read_parquet(jobs_path, columns=jobs_columns)
 
-    payroll_data: List[Dict] = payroll_df.to_dicts()
-    jobs_data: List[Dict] = jobs_df.to_dicts()
+    payroll_data = payroll_df.to_dicts()
+    jobs_data = jobs_df.to_dicts()
 
     payroll_titles_normalized = [normalize_title(row["title_description"]) for row in payroll_data]
     job_titles_normalized = [normalize_title(row["business_title"]) for row in jobs_data]
@@ -101,7 +137,7 @@ def fuzzy_match_payroll_to_jobs_vectorized(
         "score": pl.UInt8,
     }
 
-    output_buffer: List[Dict] = []
+    output_buffer = []
     batch_count = 0
 
     total_chunks = (len(payroll_titles_normalized) + payroll_chunk_size - 1) // payroll_chunk_size
@@ -124,7 +160,7 @@ def fuzzy_match_payroll_to_jobs_vectorized(
         if job_indices.size == 0:
             continue
 
-        matches_by_job: Dict[int, List[tuple[int, int]]] = {}
+        matches_by_job = {}
         for job_index, payroll_index_local in zip(job_indices, chunk_payroll_indices):
             payroll_index_global = start_index + int(payroll_index_local)
             # ---- Full WRatio on filtered candidates ----
@@ -225,6 +261,9 @@ def fuzzy_match_payroll_to_jobs_vectorized(
 
 if __name__ == "__main__":
     fuzzy_match_payroll_to_jobs_vectorized(
+        payroll_path="alt_data/nyc_payroll_data.parquet",
+        jobs_path="alt_data/nyc_job_postings_data.parquet",
+        output_parquet="alt_data/payroll_to_jobs_title_fuzzy_matches.parquet",
         score_cutoff=85,
         token_set_threshold=85,
         limit=None,
