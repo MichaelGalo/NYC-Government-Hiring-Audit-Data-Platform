@@ -1,165 +1,270 @@
-import polars as pl
-from rapidfuzz import fuzz, process
-from prefect import task
-from dotenv import load_dotenv
+import os
+import sys
+
+current_path = os.path.dirname(os.path.abspath(__file__))
+parent_path = os.path.abspath(os.path.join(current_path, ".."))
+sys.path.append(parent_path)
+
 from logger import setup_logging
-import time
-from utils import normalize_string, get_latest_file, write_csv_to_minio_stream, write_dataframe_to_bronze_table
+from utils import (
+    normalize_title,
+    chunked,
+    write_batch_to_parquet,
+    merge_and_cleanup_batches,
+    upload_parquet_and_remove_local,
+    get_most_recent_file,
+)
+from db_sync import db_sync
+from tqdm import tqdm
+from rapidfuzz import process, fuzz
+from datetime import datetime, timedelta
+import polars as pl
+import numpy as np
 
 logger = setup_logging()
-load_dotenv()
+
+def posting_dates_handler(jobs, days, posting_key, until_key, date_fmt):
+    DEFAULT_DAYS = 30
+    if not isinstance(jobs, list):
+        return jobs
+
+    parse_formats = ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]
+
+    for row in jobs:
+        until_val = row.get(until_key)
+        if until_val in (None, ""):
+            post_val = row.get(posting_key)
+            if post_val:
+                parsed_datetime = None
+                if isinstance(post_val, datetime):
+                    parsed_datetime = post_val
+                else:
+                    try:
+                        parsed_datetime = datetime.fromisoformat(post_val)
+                    except Exception:
+                        for parse_format in parse_formats:
+                            try:
+                                parsed_datetime = datetime.strptime(post_val, parse_format)
+                                break
+                            except Exception:
+                                continue
+                if parsed_datetime:
+                    add_days = DEFAULT_DAYS if days is None else days
+                    row[until_key] = (parsed_datetime + timedelta(days=add_days)).strftime(date_fmt).upper()
+
+    return jobs
 
 
-def calculate_fuzzy_match(target_string, candidate_lookup):
-    target_norm = normalize_string(target_string)
-    candidates = list(candidate_lookup.keys())
+def apply_limit_to_matches(matches_by_job, jobs_data, payroll_data, limit, output_buffer):
+    for job_index, match_list in matches_by_job.items():
+        match_list = sorted(match_list, key=lambda x: x[1], reverse=True)[:limit]
+        job_row = jobs_data[job_index]
+        for payroll_index_global, match_score in match_list:
+            payroll_row = payroll_data[payroll_index_global]
+            payroll_salary = payroll_row["base_salary"]
+            job_salary_min = job_row["salary_range_from"]
+            job_salary_max = job_row["salary_range_to"]
+            if (
+                payroll_salary is not None
+                and job_salary_min is not None
+                and job_salary_max is not None
+                and job_salary_min <= payroll_salary <= job_salary_max
+            ):
+                output_buffer.append({**job_row, **payroll_row, "score": match_score})
 
-    best_match = process.extractOne(
-        target_norm,
-        candidates,
-        scorer=fuzz.token_set_ratio
-    )
 
-    if best_match:
-        norm_match, score = best_match[0], best_match[1]
-        original_match = candidate_lookup[norm_match]
-        return original_match, score
-    return None, 0
+def fuzzy_match_payroll_to_jobs_vectorized(
+    payroll_path,
+    jobs_path,
+    output_parquet,
+    score_cutoff,
+    token_set_threshold,
+    limit,
+    payroll_chunk_size,
+    batch_size,
+    year_start,
+    year_end
+):
 
-
-def process_payroll_data(directory):
-    payroll_file = get_latest_file(directory)
-    logger.info(f"Using payroll data file: {payroll_file}")
-
-    payroll_cols = [
+    payroll_columns = [
         "title_description",
         "base_salary",
         "pay_basis",
         "regular_gross_paid",
         "total_ot_paid",
-        "total_other_pay"
+        "total_other_pay",
+        "fiscal_year"
     ]
-    payroll_data_lazy = pl.scan_parquet(payroll_file).select(payroll_cols)
-    payroll_data_lazy = payroll_data_lazy.with_columns([
-        pl.col("title_description").cast(pl.Utf8).alias("comparison_string")
-    ])
-    payroll_data_df = payroll_data_lazy.collect()
-    result = payroll_data_df
-    return result
-
-
-def load_and_prepare_job_postings(job_postings_file, job_posting_cols):
-    logger.info("Scanning Job Postings File with only selected columns.")
-    jobs_lazy = pl.scan_parquet(job_postings_file).select(job_posting_cols)
-    jobs_lazy = jobs_lazy.with_columns([
-        pl.col("posting_date").str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S%.3f", strict=False).alias("posting_date"),
-        pl.col("post_until").str.strptime(pl.Datetime, "%d-%b-%Y", strict=False).alias("post_until")
-    ])
-    jobs_lazy = jobs_lazy.with_columns([
-        pl.when(pl.col("post_until").is_null())
-        .then(pl.col("posting_date") + pl.duration(days=30))  # if there are nulls, default 30 days
-        .otherwise(pl.col("post_until"))
-        .alias("post_until")
-    ])
-    jobs_lazy = jobs_lazy.with_columns([
-        (pl.col("post_until") - pl.col("posting_date")).dt.total_days().alias("posting_duration")
-    ])
-    return jobs_lazy.collect()
-
-
-def match_job_posting_to_payroll(row, candidate_lookup, payroll_lookup_df):
-    target_string = row['business_title']
-    match_str, match_ratio = calculate_fuzzy_match(target_string, candidate_lookup)
-    
-    if match_ratio >= 85: # log this set (return all items, not just the first that reaches a match) 
-        payroll_row = payroll_lookup_df.filter(pl.col("comparison_string") == match_str)
-        if payroll_row.height > 0:
-            pr = payroll_row.row(0)
-            actual_base_salary = float(pr[payroll_lookup_df.columns.index('base_salary')])
-            posting_salary_min = float(row['salary_range_from']) if row['salary_range_from'] is not None else 0
-            posting_salary_max = float(row['salary_range_to']) if row['salary_range_to'] is not None else 0
-
-            # Salary overlap check
-            if posting_salary_min <= actual_base_salary <= posting_salary_max:
-                return {
-                    "job_title": row['business_title'],         
-                    "matched_payroll_title": match_str,     
-                    "match_ratio": match_ratio,
-                    "posting_salary_range_from": posting_salary_min,
-                    "posting_salary_range_to": posting_salary_max,
-                    "actual_base_salary": actual_base_salary,
-                    "posting_duration": row['posting_duration'],
-                    "posting_date": row['posting_date'],
-                    "posting_until": row['post_until'],
-                    "actual_pay_basis": pr[payroll_lookup_df.columns.index('pay_basis')],
-                    "actual_regular_gross_paid": pr[payroll_lookup_df.columns.index('regular_gross_paid')],
-                    "actual_total_ot_paid": pr[payroll_lookup_df.columns.index('total_ot_paid')],
-                    "actual_total_other_pay": pr[payroll_lookup_df.columns.index('total_other_pay')],
-                }
-    return None
-
-
-def process_job_postings_data(job_postings_file, payroll_lookup_df):
-    job_posting_cols = [
+    jobs_columns = [
         "business_title",
         "salary_range_from",
         "salary_range_to",
         "posting_date",
-        "post_until"
+        "post_until",
     ]
-    processed_jobs_df = load_and_prepare_job_postings(job_postings_file, job_posting_cols)
 
-    # Filter posting date for 2024 or 2025
-    processed_jobs_df = processed_jobs_df.filter(
-        (pl.col("posting_date").dt.year() == 2024) | (pl.col("posting_date").dt.year() == 2025)
+    payroll_file = get_most_recent_file(payroll_path)
+    jobs_file = get_most_recent_file(jobs_path)
+
+    payroll_df = pl.read_parquet(payroll_file, columns=payroll_columns)
+    payroll_df = payroll_df.with_columns(
+        pl.col("fiscal_year").cast(pl.Int32).alias("fiscal_year")
+    )
+    payroll_df = payroll_df.filter(pl.col("fiscal_year").is_between(int(year_start), int(year_end)))
+
+    jobs_df = pl.read_parquet(jobs_file, columns=jobs_columns)
+
+    # --- Thorough parsing/normalization for the remaining rows ---
+    jobs_df = jobs_df.with_columns(
+        pl.coalesce(
+            [
+                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S%.f", strict=False),
+                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S", strict=False),
+                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%d", strict=False),
+                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%d-%b-%Y", strict=False),
+            ]
+        ).alias("posting_date_parsed")
     )
 
-    # Creates a lookup dictionary for normalized strings to original values to return original matches
-    candidate_lookup = {}
+    # After extracting years and collecting, require that parsing succeeded to ensure a canonical posting_date
+    jobs_df = jobs_df.filter(pl.col("posting_date_parsed").is_not_null())
 
-    unique_candidates = payroll_lookup_df["comparison_string"].unique().to_list()
-    for candidate_string in unique_candidates:
-        normalized_candidate = normalize_string(candidate_string)
-        candidate_lookup[normalized_candidate] = candidate_string
+    jobs_df = jobs_df.with_columns(
+        pl.col("posting_date_parsed").dt.strftime("%Y-%m-%dT%H:%M:%S").alias("posting_date")
+    ).drop("posting_date_parsed")
 
-    results = []
-    title_match_count = 0
+    payroll_data = payroll_df.to_dicts()
+    jobs_data = jobs_df.to_dicts()
 
-    for i, row in enumerate(processed_jobs_df.iter_rows(named=True), start=1):
-        match = match_job_posting_to_payroll(row, candidate_lookup, payroll_lookup_df)
-        if match:
-            results.append(match)
-            title_match_count += 1
+    # Fill null/empty post_until with posting_date + 30 days (format: DD-MMM-YYYY)
+    posting_dates_handler(jobs_data, None, "posting_date", "post_until", "%d-%b-%Y")
 
-        # Log every 1000 rows
-        if i % 1000 == 0:
-            logger.info(f"Processed {i} job postings... matches found so far: {len(results)}")
+    payroll_titles_normalized = [normalize_title(row["title_description"]) for row in payroll_data]
+    job_titles_normalized = [normalize_title(row["business_title"]) for row in jobs_data]
 
-    # Log the total title matches after processing
-    logger.info(f"Total title matches passing 85% threshold: {title_match_count}")
+    # ---- Output schema ----
+    output_schema = {
+        "business_title": pl.Utf8,
+        "salary_range_from": pl.Float64,
+        "salary_range_to": pl.Float64,
+        "posting_date": pl.Utf8,
+        "post_until": pl.Utf8,
+        "title_description": pl.Utf8,
+        "base_salary": pl.Float64,
+        "pay_basis": pl.Utf8,
+        "regular_gross_paid": pl.Float64,
+        "total_ot_paid": pl.Float64,
+        "total_other_pay": pl.Float64,
+        "score": pl.UInt8,
+    }
 
-    return pl.DataFrame(results)
+    output_buffer = []
+    batch_count = 0
+
+    total_chunks = (len(payroll_titles_normalized) + payroll_chunk_size - 1) // payroll_chunk_size
+    for start_index, end_index, payroll_titles_chunk in tqdm(
+        chunked(payroll_titles_normalized, payroll_chunk_size),
+        total=total_chunks,
+        desc="Matching (vectorized, chunked)"
+    ):
+        # ---- Token set pre-filter ----
+        similarity_matrix_token = process.cdist(
+            job_titles_normalized,
+            payroll_titles_chunk,
+            scorer=fuzz.token_set_ratio,
+            score_cutoff=token_set_threshold,
+            workers=-1,
+            dtype=np.uint8,
+        )
+
+        job_indices, chunk_payroll_indices = np.nonzero(similarity_matrix_token)
+        if job_indices.size == 0:
+            continue
+
+        matches_by_job = {}
+        for job_index, payroll_index_local in zip(job_indices, chunk_payroll_indices):
+            payroll_index_global = start_index + int(payroll_index_local)
+            # ---- Full WRatio on filtered candidates ----
+            wscore = fuzz.WRatio(
+                job_titles_normalized[job_index],
+                payroll_titles_normalized[payroll_index_global]
+            )
+            if wscore >= score_cutoff:
+                job_row = jobs_data[job_index]
+                payroll_row = payroll_data[payroll_index_global]
+
+                # ---- Salary filter ----
+                payroll_salary = payroll_row["base_salary"]
+                job_salary_min = job_row["salary_range_from"]
+                job_salary_max = job_row["salary_range_to"]
+
+                if (
+                    payroll_salary is not None
+                    and job_salary_min is not None
+                    and job_salary_max is not None
+                    and job_salary_min <= payroll_salary <= job_salary_max
+                ):
+                    if limit is None:
+                        output_buffer.append({**job_row, **payroll_row, "score": wscore})
+                    else:
+                        matches_by_job.setdefault(job_index, []).append((payroll_index_global, wscore))
+
+        # ---- Apply limit if specified ----
+        if limit is not None:
+            apply_limit_to_matches(matches_by_job, jobs_data, payroll_data, limit, output_buffer)
+
+        # ---- Batch write to separate Parquet files ----
+        if len(output_buffer) >= batch_size:
+            batch_count = write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count)
+
+    # Flush last batch
+    if output_buffer:
+        batch_count = write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count)
+
+    logger.info(f"Fuzzy matching complete. {batch_count} batch files written.")
+
+    # ---- Merge all batch files into single Parquet ----
+    merge_and_cleanup_batches(output_parquet, logger)
+    # upload final parquet to MinIO and delete local copy
+    upload_parquet_and_remove_local(output_parquet, logger)
+    logger.info(
+        "Notes:\n"
+        f" - Compared {len(job_titles_normalized):,} job titles against {len(payroll_titles_normalized):,} payroll titles.\n"
+        f" - Score cutoff (WRatio): {score_cutoff}\n"
+        f" - Token set threshold: {token_set_threshold}\n"
+        f" - Salary filter applied: only keep payroll salaries within job range\n"
+        f" - Limit per job: {limit}\n"
+        f" - Payroll chunk size: {payroll_chunk_size}\n"
+        f" - Written in batches of {batch_size} rows.\n"
+        " - Non-matches or salary mismatches are skipped.\n"
+        " - Normalization applied: lowercase, no punctuation, single spaces."
+    )
+
+if __name__ == "__main__":
+    fuzzy_match_payroll_to_jobs_vectorized(
+        payroll_path="data/BRONZE/nyc_payroll_data/",
+        jobs_path="data/BRONZE/nyc_job_postings_data/",
+        output_parquet="data/BRONZE/payroll_to_jobs_title_fuzzy_matches.parquet",
+        score_cutoff=85,
+        token_set_threshold=85,
+        limit=None,
+        payroll_chunk_size=100_000,
+        batch_size=100_000,
+        year_start=2024,
+        year_end=2025
+    )
 
 
-@task(name="fuzzy_match")
-def fuzzy_match_salary():
-    tick = time.time()
-    logger.info("Processing beginning on Fuzzy Matching NYC Jobs Postings & Payroll Data")
+# Token set pre-filter (threshold 85)
+# WRatio matching
+# Salary filtering (only keep payroll salaries within job ranges)
+# Null values in date handling
+# Batch Parquet writes
+# Multi-core processing
+# Normalization
+# Optional per-job limit
+# Merging all batch files into a single final Parquet
+# Automatic deletion of temporary batch files
 
-    logger.info("Processing payroll data to create comparison strings")
-    processed_payroll_df = process_payroll_data("data/BRONZE/nyc_payroll_data_raw/")
-
-    logger.info("Processing job postings data and applying fuzzy matching")
-    job_postings_file = get_latest_file("data/BRONZE/nyc_job_postings_data_raw/")
-
-    logger.info(f"Using job postings data file: {job_postings_file}")
-    processed_jobs_df = process_job_postings_data(job_postings_file, processed_payroll_df)
-
-    logger.info("Writing processed DataFrame to BRONZE table")
-    write_dataframe_to_bronze_table(processed_jobs_df, "nyc_jobs_audited_fuzzy")
-
-    logger.info("Streaming processed DataFrame to MinIO as CSV")
-    write_csv_to_minio_stream(processed_jobs_df, object_name="nyc_jobs_audited_fuzzy.csv")
-
-    tock = time.time()
-    logger.info(f"Fuzzy Matching completed in {tock - tick:.2f} seconds")
+# Run time Total for No Limit 2.0 : 2:23:19 | Total Returned Results: 8,737,221
+# Run time Total for No Limit 2.1 : 12:47 | Total Returned Results: 562,898
