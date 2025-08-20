@@ -2,7 +2,6 @@ import os
 import sys
 import re
 import string
-from typing import List, Dict, Iterable
 import glob
 
 current_path = os.path.dirname(os.path.abspath(__file__))
@@ -190,61 +189,20 @@ def fuzzy_match_payroll_to_jobs_vectorized(
 
         # ---- Apply limit if specified ----
         if limit is not None:
-            for job_index, match_list in matches_by_job.items():
-                match_list = sorted(match_list, key=lambda x: x[1], reverse=True)[:limit]
-                job_row = jobs_data[job_index]
-                for payroll_index_global, match_score in match_list:
-                    payroll_row = payroll_data[payroll_index_global]
-                    payroll_salary = payroll_row["base_salary"]
-                    job_salary_min = job_row["salary_range_from"]
-                    job_salary_max = job_row["salary_range_to"]
-                    if (
-                        payroll_salary is not None
-                        and job_salary_min is not None
-                        and job_salary_max is not None
-                        and job_salary_min <= payroll_salary <= job_salary_max
-                    ):
-                        output_buffer.append({**job_row, **payroll_row, "score": match_score})
+            apply_limit_to_matches(matches_by_job, jobs_data, payroll_data, limit, output_buffer)
 
         # ---- Batch write to separate Parquet files ----
         if len(output_buffer) >= batch_size:
-            for row in output_buffer:
-                for date_col in ["posting_date", "post_until"]:
-                    if row[date_col] is not None:
-                        row[date_col] = str(row[date_col])
-            batch_filename = output_parquet.replace(".parquet", f"_batch_{batch_count:03}.parquet")
-            pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
-            output_buffer.clear()
-            batch_count += 1
+            batch_count = write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count)
 
     # Flush last batch
     if output_buffer:
-        for row in output_buffer:
-            for date_col in ["posting_date", "post_until"]:
-                if row[date_col] is not None:
-                    row[date_col] = str(row[date_col])
-        batch_filename = output_parquet.replace(".parquet", f"_batch_{batch_count:03}.parquet")
-        pl.DataFrame(output_buffer, schema=output_schema).write_parquet(batch_filename)
-        output_buffer.clear()
-        batch_count += 1
+        batch_count = write_batch_to_parquet(output_buffer, output_schema, output_parquet, batch_count)
 
     logger.info(f"Fuzzy matching complete. {batch_count} batch files written.")
 
     # ---- Merge all batch files into single Parquet ----
-    batch_files_pattern = output_parquet.replace(".parquet", "_batch_*.parquet")
-    batch_files = sorted(glob.glob(batch_files_pattern))
-    if batch_files:
-        logger.info(f"Merging {len(batch_files)} batch files into final Parquet...")
-        merged_df = pl.concat([pl.read_parquet(f) for f in batch_files])
-        merged_df.write_parquet(output_parquet)
-        logger.info(f"Final Parquet written to {output_parquet}")
-
-        # Delete temporary batch files
-        for f in batch_files:
-            os.remove(f)
-        logger.info("Temporary batch files deleted.")
-    else:
-        logger.warning("No batch files found to merge.")
+    merge_and_cleanup_batches(output_parquet, logger)
 
     logger.info(
         "Notes:\n"

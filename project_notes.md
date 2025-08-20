@@ -1,4 +1,5 @@
 Next steps:
+- needs new testing after function abstraction
 - Talk to Daniel about compute time and results
 - Function for converter for ingesting from API, then converting to parquet, then dropping into `data` & `minio`
 - Handle Null Date Values for New Fuzzy Matches
