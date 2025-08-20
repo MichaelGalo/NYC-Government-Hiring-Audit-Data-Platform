@@ -46,8 +46,8 @@ if __name__ == "__main__":
     run_gold_layer.serve(
         name="Business_Logic_Aggregation",
         schedule=CronSchedule(
-            cron="0 4 * * 0",
+            cron="0 2 * * 0",
             timezone="UTC"
-        ), # sundays at 4 am
+        ), # sundays at 2 am
         tags=["business_logic", "weekly"]
     )
