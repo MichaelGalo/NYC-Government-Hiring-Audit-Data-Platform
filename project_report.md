@@ -117,7 +117,7 @@ Notes: the SQL used to build these selects and renames columns from the BRONZE i
 ## Summary of findings for the Tukey Agency
 
 - The summary of findings can be easier found in my Streamlit dashboard, but a couple of things to note:
-    - Salary | Title Matches: ~700,000
+    - Salary | Title Matches: ~700,000, Average match ratio in returned data: 92.7%
     - Lightcast Fuzzy Matches with Salary | Title Matches: 2,356
     - Selected job titles & job posting durations can be found in the API or returned data in streamlit.
 
