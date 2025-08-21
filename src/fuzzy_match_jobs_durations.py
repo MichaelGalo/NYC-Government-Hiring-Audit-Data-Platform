@@ -52,23 +52,19 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 	except FileNotFoundError:
 		raise FileNotFoundError(f"No lightcast parquet file found for: {lightcast_path}")
 
-	# Read minimal columns from payroll->jobs results and from lightcast
 	payroll_df = pl.read_parquet(payroll_file)
 	lightcast_df = pl.read_parquet(lightcast_file)
 
-	# Determine which field to use from payroll file for matching (business_title or job_title)
 	title_field_candidates = ["business_title", "job_title", "title_description"]
 	payroll_title_field = next((candidate for candidate in title_field_candidates if candidate in payroll_df.columns), None)
 	if payroll_title_field is None:
 		raise ValueError(f"Could not find a title column in payroll file. Searched: {title_field_candidates}")
 
-	# Lightcast occupation column name(s) (mocked common names)
 	lc_candidates = ["Occupation (SOC)", "occupation", "occupation_name", "Occupation"]
 	lightcast_title_field = next((candidate for candidate in lc_candidates if candidate in lightcast_df.columns), None)
 	if lightcast_title_field is None:
 		raise ValueError(f"Could not find an occupation column in lightcast file. Searched: {lc_candidates}")
 
-	# Normalize lists
 	payroll_data = payroll_df.to_dicts()
 	lightcast_data = lightcast_df.to_dicts()
 
@@ -82,14 +78,11 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 		if key not in lightcast_lookup:
 			lightcast_lookup[key] = index
 
-	# Output schema: combine payroll->jobs columns + selected lightcast columns + score
-	# We will attempt to keep all payroll columns, and selected lightcast columns if present
 	lightcast_keep_cols= []
 	for candidate_col in ["Total Postings (Jan 2024 - Jun 2025)", "Median Posting Duration", "Total Postings", "Median Posting Duration (days)"]:
 		if candidate_col in lightcast_df.columns and candidate_col not in lightcast_keep_cols:
 			lightcast_keep_cols.append(candidate_col)
 
-	# Build output buffer
 	output_buffer = []
 	batch_count = 0
 
@@ -116,7 +109,7 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 		matches_by_payroll_index = {}
 		for lightcast_index, payroll_local_index in zip(lightcast_indices, chunk_payroll_indices):
 			payroll_global_index = start_index + int(payroll_local_index)
-			# full WRatio between the two normalized strings
+
 			match_score = fuzz.WRatio(lightcast_titles_norm[lightcast_index], payroll_titles_norm[payroll_global_index])
 			if match_score >= score_cutoff:
 				# Optionally enforce a per-job limit (top N lightcast matches)
@@ -125,7 +118,6 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 		# Apply limit_per_job and append to output_buffer via helper
 		apply_limit_to_matches(matches_by_payroll_index, payroll_data, lightcast_data, limit_per_job, output_buffer, lightcast_title_field, lightcast_keep_cols)
 
-		# Write batches to disk
 		if len(output_buffer) >= batch_size:
 			batch_count = write_batch_to_parquet(output_buffer, None, output_parquet, batch_count)
 
@@ -135,10 +127,7 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 
 	logger.info(f"Intermediate matching complete. {batch_count} batch files written.")
 
-	# Merge batches
 	merge_and_cleanup_batches(output_parquet, logger)
-
-	# Upload final parquet to MinIO and remove local copy
 	upload_parquet_and_remove_local(output_parquet, logger)
 
 	logger.info(
