@@ -6,17 +6,17 @@ This project builds a comprehensive data pipeline to audit NYC government hiring
 ## Deliverables
 - **Job Salary Match Ratios**: Dataset comparing job postings and payroll data.
 - **Job Posting Duration Dataset**: Dataset analyzing job posting durations using Lightcast data.
-- **Additional Reports**: Potential additional datasets based on Lightcast data.
 
 ## Learning Objectives
 - Design and implement a concise data pipeline for multi-source audit data.
-- Acquire data from CSVs (public APIs) and XLSX files.
+- Acquire data from public APIs enhanced with XLSX files.
 - Implement fuzzy string matching to reconcile textual data.
 - Calculate derived metrics for the gold layer: job posting duration and salary match ratios.
-- Orchestrate the pipeline using Prefect.
+- Orchestrate the pipeline.
 - Utilize logging and error handling for critical pipeline stages.
 - Document pipeline methodology and key findings.
 - Expose and Present Data
+- Manage time in a 5-day sprint.
 
 ## Data Architecture
 Utilizing a modern ducklake approach, this pipeline is organized into two main tiers:
@@ -39,12 +39,13 @@ Utilizing a modern ducklake approach, this pipeline is organized into two main t
 - **Output**: Final audit datasets for analysis.
 
 ## Technologies Used
-- **Programming Language**: Python
+- **Programming Languages**: Python & SQL
 - **Database**: DuckDB & Ducklake
+- **Storage**: MinIO (S3-compatible)
 - **Orchestration**: Prefect
 - **Fuzzy Matching**: rapidfuzz
-- **API**: FastAPI (for exposing data)
-- **Dashboard**: Streamlit (in development))
+- **API**: FastAPI 
+- **Dashboard**: Streamlit
 
 ## Terminal Commands
 
