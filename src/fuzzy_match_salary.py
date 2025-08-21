@@ -13,56 +13,15 @@ from utils import (
     merge_and_cleanup_batches,
     upload_parquet_and_remove_local,
     get_most_recent_file,
+    posting_dates_handler,
+    apply_limit_to_matches
 )
-from db_sync import db_sync
 from tqdm import tqdm
 from rapidfuzz import process, fuzz
-from datetime import datetime, timedelta
 import polars as pl
 import numpy as np
 
 logger = setup_logging()
-
-def posting_dates_handler(jobs, posting_key, until_key, date_fmt):
-    null_value_fallback = 30
-
-    for row_dict in jobs:
-        if row_dict.get(until_key):
-            continue
-
-        posting_value = row_dict.get(posting_key)
-        if not posting_value:
-            continue
-
-        try:
-            posting_datetime = datetime.strptime(posting_value, "%Y-%m-%dT%H:%M:%S")
-        except Exception:
-            # minimal handling: skip non-matching strings
-            continue
-
-        row_dict[until_key] = (posting_datetime + timedelta(days=null_value_fallback)).strftime(date_fmt).upper()
-
-    result = jobs
-    return result
-
-
-def apply_limit_to_matches(matches_by_job, jobs_data, payroll_data, limit, output_buffer):
-    for job_index, match_list in matches_by_job.items():
-        # lambda is an anonymous function that takes 1 tuple (x) and returns the second element (x[1])
-        match_list = sorted(match_list, key=lambda x: x[1], reverse=True)[:limit]
-        job_row = jobs_data[job_index]
-        for payroll_index_global, match_score in match_list:
-            payroll_row = payroll_data[payroll_index_global]
-            payroll_salary = payroll_row["base_salary"]
-            job_salary_min = job_row["salary_range_from"]
-            job_salary_max = job_row["salary_range_to"]
-            if (
-                payroll_salary is not None
-                and job_salary_min is not None
-                and job_salary_max is not None
-                and job_salary_min <= payroll_salary <= job_salary_max
-            ):
-                output_buffer.append({**job_row, **payroll_row, "score": match_score})
 
 
 def fuzzy_match_payroll_to_jobs_vectorized(
