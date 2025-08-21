@@ -1,10 +1,5 @@
 Next steps:
-- needs new testing after function abstraction
-- Talk to Daniel about compute time and results
-- Function for converter for ingesting from API, then converting to parquet, then dropping into `data` & `minio`
-- Handle Null Date Values for New Fuzzy Matches
-- Remove 1.0 Fuzzy Matching Data,
-- Update API & Streamlit with new DataSets
+- Add another table visual that SELECT DISTINCTs for Lightcast to see useful data
 
 Payroll Columns:
 - agency_name
@@ -36,8 +31,10 @@ Deliverable Datasets:
 Project Notes to Mention in Presentation:
 - mention in data architecture that with duck lake that medallion goes out the window. I have raw & cleaned, no staged.
 - mention Token_set_ratio: Ignores word order and extra words, focusing on the intersection of words between the two strings. It’s best for matching job titles where titles may have extra descriptors or words in different orders (e.g., "Senior Data Analyst" vs "Data Analyst Senior").
+- WRatio (2nd tier, more complex, weighted ratio that combines muiltiple other ratio functions)
 - mention: While ONET is built upon the SOC framework and provides detailed information, SOC itself, as a classification system for all occupations, can be considered more comprehensive in its scope of coverage across the entire labor market, particularly due to its inclusion of residual occupations not explicitly covered by ONET's targeted data collection.
 - SOC = Standard Occupational Classification (a hierarchical system used to classify workers into occupational categories for the purpose of collecting, calculating, or disseminating data)
+- primary focus was on iteration, "trusting my gut" when it came to ambiguous data
 
 
 Move from Fuzzy Match 1.0 to 2.0
