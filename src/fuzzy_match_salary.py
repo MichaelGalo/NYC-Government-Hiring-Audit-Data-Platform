@@ -65,10 +65,9 @@ def fuzzy_match_payroll_to_jobs_vectorized(
 
     jobs_df = pl.read_parquet(jobs_file, columns=jobs_columns)
 
-    # --- Thorough parsing/normalization for the remaining rows ---
+    # string → datetime → cleaned string (69-73)
     jobs_df = jobs_df.with_columns(pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S%.f", strict=False)).alias("posting_date_parsed")
-    
-    # After extracting years and collecting, require that parsing succeeded to ensure a canonical posting_date
+
     jobs_df = jobs_df.filter(pl.col("posting_date_parsed").is_not_null())
 
     jobs_df = jobs_df.with_columns(
