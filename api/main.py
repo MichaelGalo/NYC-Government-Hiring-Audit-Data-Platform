@@ -42,7 +42,7 @@ def read_reports_list():
 @app.get("/reports/{report_id}", tags=["Reports"])
 def read_report(report_id):
     try:
-        report = fetch_single_dataset(report_id, 0, 1000)
+        report = fetch_single_dataset(report_id, 0, 750000)
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         return report

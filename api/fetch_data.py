@@ -16,6 +16,12 @@ DATASET_CONFIG = {
     },
     1: {
         "table_name": "GOLD.nyc_matched_job_posting_duration_SOC"
+    },
+    2: {
+        "table_name": "GOLD.nyc_salary_matches_unique_job_posting_title"
+    },
+    3: {
+        "table_name": "GOLD.nyc_matched_job_posting_duration_SOC_unique_title"
     }
 }
 
