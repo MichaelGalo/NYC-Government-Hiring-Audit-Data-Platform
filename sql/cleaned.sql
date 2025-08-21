@@ -22,3 +22,30 @@ SELECT
     "Median Posting Duration" AS median_posting_duration
 FROM BRONZE.jobs_to_lightcast_title_fuzzy_matches
 ORDER BY median_posting_duration DESC;
+
+-- Streamlit
+
+CREATE TABLE IF NOT EXISTS GOLD.nyc_salary_matches_unique_job_posting_title AS
+SELECT
+    business_title AS posted_job_title,
+    MAX(title_description) AS matched_actual_payroll_title,
+    MAX(score) AS match_score,
+    MAX(salary_range_from) AS posting_min_salary,
+    MAX(salary_range_to) AS posting_max_salary,
+    MAX(base_salary) AS actual_base_salary,
+    MAX(CAST(CAST(strptime(post_until, '%d-%b-%Y') AS DATE) - CAST(posting_date AS DATE) AS INTEGER)) AS posting_duration_days,
+    MAX(regular_gross_paid) AS actual_gross_paid,
+    MAX(total_ot_paid) AS actual_ot_paid,
+    MAX(total_other_pay) AS actual_other_pay
+FROM BRONZE.payroll_to_jobs_title_fuzzy_matches
+GROUP BY business_title
+ORDER BY match_score DESC;
+
+CREATE TABLE IF NOT EXISTS GOLD.nyc_matched_job_posting_duration_SOC_unique_title AS
+SELECT
+    DISTINCT business_title AS title,
+    lightcast_matched_occupation,
+    "Total Postings (Jan 2024 - Jun 2025)" AS total_postings,
+    "Median Posting Duration" AS median_posting_duration
+FROM BRONZE.jobs_to_lightcast_title_fuzzy_matches
+ORDER BY median_posting_duration DESC;

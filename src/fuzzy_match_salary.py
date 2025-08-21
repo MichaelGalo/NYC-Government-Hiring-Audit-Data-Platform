@@ -23,40 +23,32 @@ import numpy as np
 
 logger = setup_logging()
 
-def posting_dates_handler(jobs, days, posting_key, until_key, date_fmt):
-    DEFAULT_DAYS = 30
-    if not isinstance(jobs, list):
-        return jobs
+def posting_dates_handler(jobs, posting_key, until_key, date_fmt):
+    null_value_fallback = 30
 
-    parse_formats = ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]
+    for row_dict in jobs:
+        if row_dict.get(until_key):
+            continue
 
-    for row in jobs:
-        until_val = row.get(until_key)
-        if until_val in (None, ""):
-            post_val = row.get(posting_key)
-            if post_val:
-                parsed_datetime = None
-                if isinstance(post_val, datetime):
-                    parsed_datetime = post_val
-                else:
-                    try:
-                        parsed_datetime = datetime.fromisoformat(post_val)
-                    except Exception:
-                        for parse_format in parse_formats:
-                            try:
-                                parsed_datetime = datetime.strptime(post_val, parse_format)
-                                break
-                            except Exception:
-                                continue
-                if parsed_datetime:
-                    add_days = DEFAULT_DAYS if days is None else days
-                    row[until_key] = (parsed_datetime + timedelta(days=add_days)).strftime(date_fmt).upper()
+        posting_value = row_dict.get(posting_key)
+        if not posting_value:
+            continue
 
-    return jobs
+        try:
+            posting_datetime = datetime.strptime(posting_value, "%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            # minimal handling: skip non-matching strings
+            continue
+
+        row_dict[until_key] = (posting_datetime + timedelta(days=null_value_fallback)).strftime(date_fmt).upper()
+
+    result = jobs
+    return result
 
 
 def apply_limit_to_matches(matches_by_job, jobs_data, payroll_data, limit, output_buffer):
     for job_index, match_list in matches_by_job.items():
+        # lambda is an anonymous function that takes 1 tuple (x) and returns the second element (x[1])
         match_list = sorted(match_list, key=lambda x: x[1], reverse=True)[:limit]
         job_row = jobs_data[job_index]
         for payroll_index_global, match_score in match_list:
@@ -115,17 +107,8 @@ def fuzzy_match_payroll_to_jobs_vectorized(
     jobs_df = pl.read_parquet(jobs_file, columns=jobs_columns)
 
     # --- Thorough parsing/normalization for the remaining rows ---
-    jobs_df = jobs_df.with_columns(
-        pl.coalesce(
-            [
-                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S%.f", strict=False),
-                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S", strict=False),
-                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%d", strict=False),
-                pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%d-%b-%Y", strict=False),
-            ]
-        ).alias("posting_date_parsed")
-    )
-
+    jobs_df = jobs_df.with_columns(pl.col("posting_date").cast(pl.Utf8).str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S%.f", strict=False)).alias("posting_date_parsed")
+    
     # After extracting years and collecting, require that parsing succeeded to ensure a canonical posting_date
     jobs_df = jobs_df.filter(pl.col("posting_date_parsed").is_not_null())
 
@@ -136,8 +119,8 @@ def fuzzy_match_payroll_to_jobs_vectorized(
     payroll_data = payroll_df.to_dicts()
     jobs_data = jobs_df.to_dicts()
 
-    # Fill null/empty post_until with posting_date + 30 days (format: DD-MMM-YYYY)
-    posting_dates_handler(jobs_data, None, "posting_date", "post_until", "%d-%b-%Y")
+    # Fill null post_until with posting_date + 30 days
+    posting_dates_handler(jobs_data, "posting_date", "post_until", "%d-%b-%Y")
 
     payroll_titles_normalized = [normalize_title(row["title_description"]) for row in payroll_data]
     job_titles_normalized = [normalize_title(row["business_title"]) for row in jobs_data]
