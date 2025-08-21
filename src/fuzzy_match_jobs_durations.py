@@ -6,7 +6,6 @@ current_path = os.path.dirname(os.path.abspath(__file__))
 parent_path = os.path.abspath(os.path.join(current_path, ".."))
 sys.path.append(parent_path)
 
-from db_sync import db_sync
 from logger import setup_logging
 from tqdm import tqdm
 from rapidfuzz import process, fuzz
