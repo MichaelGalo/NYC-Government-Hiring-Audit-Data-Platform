@@ -54,8 +54,15 @@ def fuzzy_match_payroll_to_jobs_vectorized(
         "post_until",
     ]
 
-    payroll_file = get_most_recent_file(payroll_path)
-    jobs_file = get_most_recent_file(jobs_path)
+    try: 
+        payroll_file = get_most_recent_file(payroll_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"No payroll parquet file found for: {payroll_path}")
+    
+    try:
+        jobs_file = get_most_recent_file(jobs_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"No jobs parquet file found for: {jobs_path}")
 
     payroll_df = pl.read_parquet(payroll_file, columns=payroll_columns)
     payroll_df = payroll_df.with_columns(
