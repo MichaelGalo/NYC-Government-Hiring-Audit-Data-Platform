@@ -38,15 +38,11 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 	payroll_df = pl.read_parquet(payroll_file)
 	lightcast_df = pl.read_parquet(lightcast_file)
 
-	title_field_candidates = ["business_title", "job_title", "title_description"]
-	payroll_title_field = next((candidate for candidate in title_field_candidates if candidate in payroll_df.columns), None)
-	if payroll_title_field is None:
-		raise ValueError(f"Could not find a title column in payroll file. Searched: {title_field_candidates}")
+	payroll_title_field = "business_title"
+	payroll_df = payroll_df.select(pl.col(payroll_title_field))
 
-	lc_candidates = ["Occupation (SOC)", "occupation", "occupation_name", "Occupation"]
-	lightcast_title_field = next((candidate for candidate in lc_candidates if candidate in lightcast_df.columns), None)
-	if lightcast_title_field is None:
-		raise ValueError(f"Could not find an occupation column in lightcast file. Searched: {lc_candidates}")
+	lightcast_title_field = "Occupation (SOC)"
+	lightcast_df = lightcast_df.select(pl.col(lightcast_title_field))
 
 	payroll_data = payroll_df.to_dicts()
 	lightcast_data = lightcast_df.to_dicts()
