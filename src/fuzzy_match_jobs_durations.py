@@ -15,22 +15,6 @@ import numpy as np
 
 logger = setup_logging()
 
-def apply_limit_to_matches(matches_by_payroll_index, payroll_data, lightcast_data, limit_per_job, output_buffer, lightcast_title_field, lightcast_keep_cols):
-	for payroll_global_index, match_list in matches_by_payroll_index.items():
-		sorted_matches = sorted(match_list, key=lambda pair: pair[1], reverse=True)
-		if limit_per_job is not None:
-			sorted_matches = sorted_matches[:limit_per_job]
-
-		payroll_row = payroll_data[payroll_global_index]
-		for lightcast_index, score in sorted_matches:
-			lightcast_row = lightcast_data[lightcast_index]
-			out_row = {**payroll_row}
-			out_row["lightcast_matched_occupation"] = lightcast_row.get(lightcast_title_field)
-			out_row["lightcast_match_score"] = score
-			for col in lightcast_keep_cols:
-				out_row[col] = lightcast_row.get(col)
-			output_buffer.append(out_row)
-
 
 def fuzzy_match_jobs_to_lightcast_vectorized(
 	payroll_jobs_path,
@@ -38,7 +22,6 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 	output_parquet,
 	score_cutoff,
 	token_set_threshold,
-	limit_per_job,
 	payroll_chunk_size,
 	batch_size
 ):
@@ -71,17 +54,7 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 	payroll_titles_norm = [normalize_title(row.get(payroll_title_field, "")) for row in payroll_data]
 	lightcast_titles_norm = [normalize_title(row.get(lightcast_title_field, "")) for row in lightcast_data]
 
-	# Create lookup from normalized lightcast title -> original row index (if duplicates, keep first)
-	lightcast_lookup = {}
-	for index, raw in enumerate(lightcast_data):
-		key = lightcast_titles_norm[index]
-		if key not in lightcast_lookup:
-			lightcast_lookup[key] = index
-
-	lightcast_keep_cols= []
-	for candidate_col in ["Total Postings (Jan 2024 - Jun 2025)", "Median Posting Duration", "Total Postings", "Median Posting Duration (days)"]:
-		if candidate_col in lightcast_df.columns and candidate_col not in lightcast_keep_cols:
-			lightcast_keep_cols.append(candidate_col)
+	lightcast_keep_cols = list(lightcast_df.columns)
 
 	output_buffer = []
 	batch_count = 0
@@ -92,7 +65,8 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 		total=total_chunks,
 		desc="Matching jobs -> lightcast (vectorized, chunked)"
 	):
-		# token_set prefilter between lightcast titles (rows) and payroll chunk (cols)
+		
+		# token_set prefilter between lightcast titles and payroll chunk
 		similarity_matrix_token = process.cdist(
 			lightcast_titles_norm,
 			payroll_chunk,
@@ -115,8 +89,18 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 				# Optionally enforce a per-job limit (top N lightcast matches)
 				matches_by_payroll_index.setdefault(payroll_global_index, []).append((lightcast_index, int(match_score)))
 
-		# Apply limit_per_job and append to output_buffer via helper
-		apply_limit_to_matches(matches_by_payroll_index, payroll_data, lightcast_data, limit_per_job, output_buffer, lightcast_title_field, lightcast_keep_cols)
+		# Append all matches to the output buffer without limit
+		for payroll_global_index, match_list in matches_by_payroll_index.items():
+			payroll_row = payroll_data[payroll_global_index]
+			sorted_matches = sorted(match_list, key=lambda pair: pair[1], reverse=True)
+			for lightcast_index, score in sorted_matches:
+				lightcast_row = lightcast_data[lightcast_index]
+				out_row = {**payroll_row}
+				out_row["lightcast_matched_occupation"] = lightcast_row.get(lightcast_title_field)
+				out_row["lightcast_match_score"] = score
+				for col in lightcast_keep_cols:
+					out_row[col] = lightcast_row.get(col)
+				output_buffer.append(out_row)
 
 		if len(output_buffer) >= batch_size:
 			batch_count = write_batch_to_parquet(output_buffer, None, output_parquet, batch_count)
@@ -135,7 +119,6 @@ def fuzzy_match_jobs_to_lightcast_vectorized(
 		f" - Compared {len(lightcast_titles_norm):,} Lightcast occupations against {len(payroll_titles_norm):,} payroll/job titles.\n"
 		f" - Score cutoff (WRatio): {score_cutoff}\n"
 		f" - Token set threshold: {token_set_threshold}\n"
-		f" - Limit per payroll title: {limit_per_job}\n"
 		f" - Payroll chunk size: {payroll_chunk_size}\n"
 		f" - Written in batches of {batch_size} rows."
 	)
@@ -148,7 +131,6 @@ if __name__ == "__main__":
 		output_parquet="data/BRONZE/jobs_to_lightcast_title_fuzzy_matches.parquet",
 		score_cutoff=75,
 		token_set_threshold=75,
-		limit_per_job=None,
 		payroll_chunk_size=100_000,
 		batch_size=100_000,
 	)

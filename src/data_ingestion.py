@@ -41,7 +41,8 @@ def convert_csv_to_parquet(dataframe):
     try:
         dataframe.write_parquet(buffer)
         buffer.seek(0)
-        return buffer
+        result = buffer
+        return result
     except Exception as e:
         logger.error(f"Failed to convert DataFrame to Parquet in-memory: {e}")
         return None
@@ -57,13 +58,16 @@ def write_data_to_minio(parquet_buffer, bucket_name, object_name):
     parquet_buffer.seek(0)
     data_bytes = parquet_buffer.read()
     
-    minio_client.put_object(
+    try:
+        minio_client.put_object(
         bucket_name,
         object_name,
         io.BytesIO(data_bytes),
         length=len(data_bytes),
         content_type="application/x-parquet",
     )
+    except Exception as e:
+        logger.error(f"Failed to write data to MinIO: {e}")
 
 
 @flow(name="Data_Ingestion_Flow")
@@ -100,5 +104,3 @@ if __name__ == "__main__":
         ), # sundays at midnight
         tags=["data_ingestion", "weekly"]
     )
-
-# full data ingestion run time: 13 minutes, 40 seconds
