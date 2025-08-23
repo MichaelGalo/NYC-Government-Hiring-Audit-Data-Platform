@@ -1,51 +1,45 @@
 # NYC Government Hiring Audit Data Platform
 
 ## Project Overview
-This project builds a comprehensive data pipeline to audit NYC government hiring practices. The pipeline integrates data from multiple sources, including NYC Open Data (Payroll, Job Postings) and Lighthouse Data Analytics, to reconcile job titles using fuzzy string matching and calculate key audit metrics. The final datasets are delivered to DuckDB and an API for analysis, ensuring a 5-day turnaround for actionable insights.
+This project implements a concise, production-oriented data pipeline to audit NYC government hiring practices. It integrates multiple public and third-party sources (NYC Open Data payroll and job postings, Lighthouse/Lightcast analytics), reconciles job titles with fuzzy string matching, and produces curated audit datasets. Outputs are stored in DuckDB and exposed via an API for analysis — designed to produce actionable insights within a 5-day sprint.
 
 ## Deliverables
-- **Job Salary Match Ratios**: Dataset comparing job postings and payroll data.
-- **Job Posting Duration Dataset**: Dataset analyzing job posting durations using Lightcast data.
+- Job salary match ratios: fuzzy-matched dataset comparing payroll and job postings
+- Job posting duration dataset: fuzzy-matched dataset comparing job posting & salary matches with enriched analytics data
 
 ## Learning Objectives
-- Design and implement a concise data pipeline for multi-source audit data.
-- Acquire data from public APIs enhanced with XLSX files.
-- Implement fuzzy string matching to reconcile textual data.
-- Calculate derived metrics for the gold layer: job posting duration and salary match ratios.
-- Orchestrate the pipeline.
-- Utilize logging and error handling for critical pipeline stages.
-- Document pipeline methodology and key findings.
-- Expose and Present Data
-- Manage time in a 5-day sprint.
+- Design and implement a pragmatic ETL pipeline for multi-source audit data.
+- Ingest and enrich data from public APIs and XLSX sources.
+- Apply fuzzy string matching to reconcile noisy textual fields (job titles).
+- Calculate gold-layer metrics: posting durations and salary match ratios.
+- Orchestrate workflows and manage failures with logging and retries.
+- Document methodology, findings, and produce consumable outputs (DB + API + dashboard).
+
+## Tech Stack
+- Data Exploration: Numbers/Excel | DataGrip
+- Languages: Python, SQL
+- DB & Catalog: DuckDB, Ducklake
+- Object storage: MinIO (S3-compatible)
+- Orchestration: Prefect
+- Fuzzy matching: rapidfuzz
+- API: FastAPI
+- Visualization: Streamlit
+- Containerization: Docker (for MinIO & Prefect)
 
 ## Data Architecture
-Utilizing a modern ducklake approach, this pipeline is organized into two main tiers:
+This project's data architecture was designed to be lightweight, powerful and for the most part free.
 
-### Bronze Layer
-- **Purpose**: Raw data ingestion and storage.
-- **Data Sources**:
-  - NYC Payroll Data
-  - NYC Job Postings Data
-  - Lighthouse Analytics Data
-- **Storage**: Data is loaded into DuckDB for fast local processing.
+![Data Architecture](screenshots/NYC_Data_Architecture.png)
 
-### Gold Layer
-- **Purpose**: Data cleaning, transformation, and metric calculation.
-- **Key Processes**:
-  - Filtering for relevant posting dates (2024/2025).
-  - Normalization and basic transformations.
-  - Fuzzy string matching to reconcile job titles.
-  - Calculation of match ratios, posting durations, and salary metrics.
-- **Output**: Final audit datasets for analysis.
+### Bronze (raw) layer
+- Purpose: raw ingestion 
+- Sources: NYC payroll API, NYC job postings API, Lightcast excel tables
+- Storage: persisted in DuckDB & minIO
 
-## Technologies Used
-- **Programming Languages**: Python & SQL
-- **Database**: DuckDB & Ducklake
-- **Storage**: MinIO (S3-compatible)
-- **Orchestration**: Prefect
-- **Fuzzy Matching**: rapidfuzz
-- **API**: FastAPI 
-- **Dashboard**: Streamlit
+### Gold (cleaned) layer
+- Purpose: cleaning, normalization, fuzzy reconciliation, and metric calculation.
+- Processes: date filtering, normalization, fuzzy title matching, computation of match ratios, posting durations, and salary metrics.
+- Output: curated tables for analysis and downstream consumption.
 
 ## Terminal Commands
 
@@ -57,3 +51,4 @@ fastapi dev api/main.py
 ```bash
 # Streamlit Data Vis
 streamlit run streamlit/app.py
+```
